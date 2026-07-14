@@ -220,4 +220,88 @@ def add_link(proj_id, titulo, url):
 
 def del_link(link_id):
     conn = get_conn()
-    conn.execute("DELETE
+    conn.execute("DELETE FROM projeto_links WHERE id=?",(link_id,))
+    conn.commit(); conn.close()
+
+def lancar_real(proj_id, ano, mes, valor, obs, user_id):
+    conn = get_conn()
+    conn.execute("""INSERT INTO lancamentos (projeto_id,ano,mes,valor_real,observacao,lancado_por)
+        VALUES (?,?,?,?,?,?) ON CONFLICT(projeto_id,ano,mes) DO UPDATE SET
+        valor_real=excluded.valor_real,observacao=excluded.observacao,
+        lancado_em=datetime('now'),lancado_por=excluded.lancado_por""",
+        (proj_id,ano,mes,valor,obs,user_id))
+    conn.commit(); conn.close()
+
+def get_lancamentos(unidade_nome=None, ano=None, proj_id=None):
+    init_db()
+    conn = get_conn()
+    q = """SELECT l.*,p.nome as proj_nome,p.tipo,p.previsto_custos,p.previsto_unidade,
+        p.mes_primeiro_retorno,u.nome as unidade_nome
+        FROM lancamentos l JOIN projetos p ON l.projeto_id=p.id
+        JOIN unidades u ON p.unidade_id=u.id WHERE 1=1"""
+    params = []
+    if unidade_nome: q += " AND u.nome=?"; params.append(unidade_nome)
+    if ano:          q += " AND l.ano=?";  params.append(ano)
+    if proj_id:      q += " AND l.projeto_id=?"; params.append(proj_id)
+    rows = conn.execute(q,params).fetchall()
+    conn.close(); return [dict(r) for r in rows]
+
+def get_real_por_mes(unidade_nome, ano):
+    lancs = get_lancamentos(unidade_nome=unidade_nome, ano=ano)
+    r = {m: 0.0 for m in range(1,13)}
+    for l in lancs: r[l["mes"]] += l["valor_real"]
+    return r
+
+def get_previsto_curva(proj_id):
+    p = get_projeto(proj_id)
+    if not p or not p.get("mes_primeiro_retorno"): return {}
+    valor = p["previsto_custos"] if p["previsto_custos"]>0 else p["previsto_unidade"]
+    if valor<=0: return {}
+    mensal = valor/12
+    try:
+        mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m")
+    except: return {}
+    curva = {}
+    for i in range(12):
+        mes = (mpr.month-1+i)%12+1
+        ano = mpr.year+(mpr.month-1+i)//12
+        curva[(ano,mes)] = mensal
+    return curva
+
+def alertas_pendentes(unidade_nome=None):
+    projetos = listar_projetos(unidade_nome)
+    hoje = date.today(); alertas = []
+    for p in projetos:
+        if not p.get("mes_primeiro_retorno"): continue
+        curva = get_previsto_curva(p["id"])
+        lancs = {(l["ano"],l["mes"]) for l in get_lancamentos(proj_id=p["id"])}
+        for (ano,mes) in curva:
+            if date(ano,mes,1)<date(hoje.year,hoje.month,1) and (ano,mes) not in lancs:
+                alertas.append({"projeto":p["nome"],"unidade":p["unidade_nome"],"ano":ano,"mes":mes,"proj_id":p["id"]})
+    return alertas
+
+def kpis_unidade(unidade_nome, ano):
+    init_db()
+    projetos = listar_projetos(unidade_nome)
+    real_mes = get_real_por_mes(unidade_nome, ano)
+    meta = get_meta(unidade_nome, ano)
+    prev_mes = {m:0.0 for m in range(1,13)}
+    for p in projetos:
+        for (y,m),v in get_previsto_curva(p["id"]).items():
+            if y==ano: prev_mes[m]+=v
+    total_prev = sum(p["previsto_custos"] if p["previsto_custos"]>0 else p["previsto_unidade"] for p in projetos)
+    total_val  = sum(p["saving_validado"] for p in projetos)
+    total_real = sum(real_mes.values())
+    return {
+        "n_projetos":  len(projetos),
+        "previsto":    total_prev,
+        "validado":    total_val,
+        "real":        total_real,
+        "meta":        meta,
+        "pct_meta":    total_real/meta*100 if meta>0 else 0,
+        "prev_mensal": [prev_mes[m] for m in range(1,13)],
+        "real_mensal": [real_mes[m] for m in range(1,13)],
+        "projetos":    projetos,
+    }
+
+init_db()
