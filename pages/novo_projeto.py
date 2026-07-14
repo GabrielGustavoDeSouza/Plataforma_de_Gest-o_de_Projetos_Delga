@@ -1,266 +1,196 @@
 import streamlit as st
-from database import (listar_unidades, listar_projetos, get_projeto,
-                      criar_projeto, atualizar_projeto, deletar_projeto,
-                      get_links, add_link, del_link,
-                      TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS)
+from datetime import datetime, date
+from database import (listar_unidades, listar_projetos, lancar_real,
+                      get_lancamentos, alertas_pendentes, get_previsto_curva,
+                      atualizar_projeto, MESES_PT)
 
 def render(user, **colors):
-    NAVY=colors.get("NAVY","#1C2B4A"); TEAL=colors.get("TEAL","#20C997")
-    GREEN=colors.get("GREEN","#1A7A3A"); AMBER=colors.get("AMBER","#E8A838")
-    SILVER=colors.get("SILVER","#8A9BB0"); RED=colors.get("RED","#C8202E")
+    NAVY=colors.get("NAVY","#1C2B4A"); GREEN=colors.get("GREEN","#1A7A3A")
+    AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#C8202E")
+    TEAL=colors.get("TEAL","#20C997"); SILVER=colors.get("SILVER","#8A9BB0")
 
-    st.markdown('<span class="st">Projetos — Cadastro e Manutenção</span>',
-                unsafe_allow_html=True)
+    ano_atual = datetime.now().year
+    is_cc = user["perfil"] in ("admin","cost_control","gestor")
 
-    unidades = listar_unidades()
-    nomes_u  = [u["nome"] for u in unidades]
-
-    if user["perfil"] in ("admin","gestor","cost_control") and not user.get("unidade"):
-        unidade_sel = st.selectbox("Unidade:", nomes_u, key="np_uni")
+    if is_cc:
+        tab_fila, tab_lanc, tab_alertas = st.tabs([
+            "📋 Fila Cost Control",
+            "💰 Lançar Real Mensal",
+            "⚠️ Alertas"
+        ])
     else:
-        unidade_sel = user.get("unidade","")
-        if unidade_sel not in nomes_u:
-            st.warning("Unidade não configurada."); return
-        st.markdown(f"**Unidade:** {unidade_sel}")
+        tab_lanc, tab_alertas = st.tabs([
+            "💰 Lançar Real Mensal",
+            "⚠️ Alertas"
+        ])
+        tab_fila = None
 
-    tab_novo, tab_editar, tab_links, tab_camp = st.tabs([
-        "➕ Novo Projeto", "✏️ Editar / Status",
-        "🔗 Links & Evidências", "🏆 Campeões"
-    ])
+    # ── Fila Cost Control ─────────────────────────────────────────────────────
+    if tab_fila:
+        with tab_fila:
+            st.markdown('<span class="st">Fila de Validação — Cost Control</span>',
+                        unsafe_allow_html=True)
+            st.caption("Projetos ordenados por prioridade. "
+                       "Após validar, o projeto vai ao final da fila.")
 
-    # ── Novo Projeto ──────────────────────────────────────────────────────────
-    with tab_novo:
-        with st.form("form_novo", clear_on_submit=True):
-            st.markdown("**Identificação**")
-            c1,c2,c3 = st.columns(3)
-            with c1: tipo = st.selectbox("Tipo *", TIPOS_PROJETO)
-            with c2: va   = st.selectbox("VA / GGF / Mat. Aux. *", VA_GGF_OPTS)
-            with c3: resp = st.text_input("Responsável")
+            todos = listar_projetos()
+            pendentes = [p for p in todos if not p["check_formalizado"]]
+            validados = [p for p in todos if p["check_formalizado"]]
 
-            nome = st.text_input("Nome do Projeto *")
-            desc = st.text_area("Descrição / Objetivo", height=70)
+            st.markdown(f"**{len(pendentes)} aguardando validação** "
+                        f"· {len(validados)} já validados")
 
-            st.markdown("**Datas e Valores**")
-            c1,c2,c3 = st.columns(3)
-            with c1: inicio  = st.date_input("Início")
-            with c2: termino = st.date_input("Término")
-            with c3: mpr     = st.date_input("Mês do 1º Retorno *",
-                help="Mês em que o projeto começa a gerar ganho financeiro")
-
-            c1,c2 = st.columns(2)
-            with c1: previsto = st.number_input(
-                "Valor Previsto pela Unidade (R$) *",
-                min_value=0.0, step=1000.0, format="%.2f",
-                help="Valor especulado pela unidade. Será distribuído em 12 meses.")
-            with c2: status = st.selectbox("Status", STATUS_OPTS)
-
-            st.markdown("**Acompanhamento**")
-            c1,c2 = st.columns(2)
-            with c1: ativ    = st.text_input("Atividade em andamento (prevista no A3)")
-            with c2: dt_ativ = st.date_input("Previsão de conclusão desta atividade")
-
-            obs = st.text_area("Observações", height=50)
-            salvar = st.form_submit_button("💾 Cadastrar Projeto",
-                                           use_container_width=True)
-
-        if salvar:
-            if not nome or previsto <= 0:
-                st.error("Preencha Nome e Valor Previsto.")
+            if not pendentes:
+                st.success("✅ Todos os projetos estão validados!")
             else:
-                pid = criar_projeto(unidade_sel, {
-                    "nome": nome, "tipo": tipo, "va_ggf": va,
-                    "responsavel": resp, "descricao": desc, "obs": obs,
-                    "inicio": str(inicio), "termino": str(termino),
-                    "mes_primeiro_retorno": str(mpr),
-                    "previsto_unidade": previsto,
-                    "status": status,
-                    "atividade_atual": ativ,
-                    "data_conclusao_ativ": str(dt_ativ),
-                }, user["id"])
-                st.success(f"✅ Projeto **{nome}** cadastrado! ID #{pid}")
-                st.rerun()
+                for p in pendentes:
+                    with st.expander(
+                        f"#{p['id']} [{p['tipo'][:8]}] {p['nome']} "
+                        f"— {p['unidade_nome']}", expanded=False):
 
-    # ── Editar ────────────────────────────────────────────────────────────────
-    with tab_editar:
-        projetos = listar_projetos(unidade_sel)
-        if not projetos:
-            st.info("Nenhum projeto cadastrado ainda.")
+                        c1,c2,c3 = st.columns(3)
+                        with c1:
+                            ck_a3  = st.checkbox("A3 e Plano desenvolvido",
+                                value=bool(p["check_a3"]),  key=f"a3_{p['id']}")
+                            ck_mem = st.checkbox("Memória de Cálculo",
+                                value=bool(p["check_memoria"]), key=f"mem_{p['id']}")
+                            ck_for = st.checkbox("Formalizado com Custos",
+                                value=bool(p["check_formalizado"]), key=f"for_{p['id']}")
+                        with c2:
+                            val_ok = st.selectbox("Validador",
+                                ["Pendente","OK","NOK"],
+                                index=["Pendente","OK","NOK"].index(
+                                    p.get("validador_ok","Pendente")),
+                                key=f"vok_{p['id']}")
+                            saving = st.number_input("Saving Validado (R$)",
+                                value=float(p["saving_validado"]),
+                                step=500.0, key=f"sav_{p['id']}")
+                        with c3:
+                            prev_c = st.number_input(
+                                "Valor Calculado Custos (R$)",
+                                value=float(p["previsto_custos"]),
+                                step=500.0, key=f"pc_{p['id']}",
+                                help="Substitui o previsto da unidade "
+                                     "na distribuição dos 12 meses")
+
+                        st.caption(f"Previsto Unidade: "
+                                   f"R$ {p['previsto_unidade']:,.0f}")
+
+                        if st.button(f"💾 Salvar #{p['id']}",
+                                     key=f"sv_{p['id']}"):
+                            atualizar_projeto(p["id"], {
+                                "check_a3": int(ck_a3),
+                                "check_memoria": int(ck_mem),
+                                "check_formalizado": int(ck_for),
+                                "validador_ok": val_ok,
+                                "saving_validado": saving,
+                                "previsto_custos": prev_c,
+                            }, user["id"])
+                            st.success("✅ Salvo! Projeto vai ao final da fila.")
+                            st.rerun()
+
+    # ── Lançamento Real ───────────────────────────────────────────────────────
+    with tab_lanc:
+        st.markdown('<span class="st">Lançar Retorno Real Mensal</span>',
+                    unsafe_allow_html=True)
+        st.info("📌 Lance o retorno do **mês anterior** "
+                "na primeira semana do mês atual.")
+
+        unidades = listar_unidades()
+        nomes_u  = [u["nome"] for u in unidades]
+
+        if is_cc:
+            unidade_sel = st.selectbox("Unidade:", nomes_u, key="lc_uni")
         else:
-            opts = {f"#{p['id']} [{p['tipo'][:6]}] {p['nome']}": p
-                    for p in projetos}
-            sel_p = st.selectbox("Selecionar projeto:", list(opts.keys()),
-                                  key="ed_sel")
-            p = opts[sel_p]
+            unidade_sel = user.get("unidade","")
+            if unidade_sel not in nomes_u:
+                st.warning("Unidade não configurada."); return
+            st.markdown(f"**Unidade:** {unidade_sel}")
 
-            with st.form("form_editar"):
-                st.markdown("**Dados**")
-                c1,c2,c3 = st.columns(3)
-                with c1:
-                    tipo_e = st.selectbox("Tipo", TIPOS_PROJETO,
-                        index=TIPOS_PROJETO.index(p["tipo"])
-                        if p["tipo"] in TIPOS_PROJETO else 0)
-                with c2:
-                    va_e = st.selectbox("VA/GGF", VA_GGF_OPTS,
-                        index=VA_GGF_OPTS.index(p["va_ggf"])
-                        if p.get("va_ggf") in VA_GGF_OPTS else 0)
-                with c3:
-                    resp_e = st.text_input("Responsável",
-                                            value=p.get("responsavel",""))
+        c1,c2 = st.columns(2)
+        with c1:
+            anos = list(range(2025, 2030))
+            ano_sel = st.selectbox("Ano:", anos,
+                index=anos.index(ano_atual) if ano_atual in anos else 0)
+        with c2:
+            mes_sel = st.selectbox("Mês de referência:", range(1,13),
+                format_func=lambda m: MESES_PT[m-1])
 
-                nome_e = st.text_input("Nome", value=p["nome"])
-                desc_e = st.text_area("Descrição",
-                                       value=p.get("descricao","") or "",
-                                       height=60)
+        projetos = listar_projetos(unidade_sel)
+        proj_ativos = []
+        for p in projetos:
+            curva = get_previsto_curva(p["id"])
+            if (ano_sel, mes_sel) in curva:
+                proj_ativos.append(p)
 
-                st.markdown("**Valores e Status**")
-                c1,c2 = st.columns(2)
-                with c1:
-                    prev_e = st.number_input("Previsto Unidade (R$)",
-                        value=float(p["previsto_unidade"]),
-                        step=1000.0, format="%.2f")
-                with c2:
-                    status_e = st.selectbox("Status", STATUS_OPTS,
-                        index=STATUS_OPTS.index(p["status"])
-                        if p["status"] in STATUS_OPTS else 0)
+        if not proj_ativos:
+            st.info(f"Nenhum projeto com retorno previsto em "
+                    f"{MESES_PT[mes_sel-1]}/{ano_sel}.")
+        else:
+            lancs_exist = {
+                l["projeto_id"]: l
+                for l in get_lancamentos(unidade_nome=unidade_sel, ano=ano_sel)
+                if l["mes"] == mes_sel
+            }
 
-                c1,c2 = st.columns(2)
-                with c1:
-                    onde_e = st.text_input("Onde Parado",
-                                            value=p.get("onde_parado","") or "")
-                with c2:
-                    dlib_e = st.text_input("Previsão Liberação",
-                                            value=p.get("data_lib","") or "")
+            with st.form("form_lanc"):
+                valores = {}; obs_map = {}
+                for p in proj_ativos:
+                    curva  = get_previsto_curva(p["id"])
+                    prev_m = curva.get((ano_sel, mes_sel), 0)
+                    ant    = lancs_exist.get(p["id"])
+                    val_ant= float(ant["valor_real"]) if ant else 0.0
+                    obs_ant= ant["observacao"] if ant else ""
+                    badge  = "✅" if p["id"] in lancs_exist else "⏳"
 
-                st.markdown("**Acompanhamento**")
-                c1,c2 = st.columns(2)
-                with c1:
-                    ativ_e = st.text_input("Atividade em andamento",
-                                            value=p.get("atividade_atual","") or "")
-                with c2:
-                    dt_e = st.text_input("Previsão conclusão atividade",
-                                          value=p.get("data_conclusao_ativ","") or "")
-
-                obs_e = st.text_area("Observações",
-                                      value=p.get("obs","") or "", height=50)
-
-                # Cost Control
-                if user["perfil"] in ("admin","cost_control"):
+                    st.markdown(
+                        f"**{badge} #{p['id']} — {p['nome']}** "
+                        f"· Previsto mês: R$ {prev_m:,.0f}")
+                    c1,c2 = st.columns([2,4])
+                    with c1:
+                        valores[p["id"]] = st.number_input(
+                            "Real (R$)", value=val_ant, step=100.0,
+                            format="%.2f", key=f"rv_{p['id']}",
+                            label_visibility="collapsed")
+                    with c2:
+                        obs_map[p["id"]] = st.text_input(
+                            "Obs", value=obs_ant, key=f"ro_{p['id']}",
+                            label_visibility="collapsed",
+                            placeholder="Observação (opcional)")
                     st.markdown("---")
-                    st.markdown("**🔵 Cost Control**")
-                    c1,c2,c3 = st.columns(3)
-                    with c1:
-                        ck_a3  = st.checkbox("✅ A3 e Plano desenvolvido",
-                                              value=bool(p.get("check_a3")))
-                    with c2:
-                        ck_mem = st.checkbox("✅ Memória de Cálculo",
-                                              value=bool(p.get("check_memoria")))
-                    with c3:
-                        ck_for = st.checkbox("✅ Formalizado com Custos",
-                                              value=bool(p.get("check_formalizado")))
-                    c1,c2 = st.columns(2)
-                    with c1:
-                        val_ok = st.selectbox("Validador Custos",
-                            ["Pendente","OK","NOK"],
-                            index=["Pendente","OK","NOK"].index(
-                                p.get("validador_ok","Pendente")))
-                    with c2:
-                        saving = st.number_input("Saving Validado (R$)",
-                            value=float(p.get("saving_validado",0)),
-                            step=1000.0, format="%.2f")
-                    prev_c = st.number_input(
-                        "Valor Calculado por Custos (R$)",
-                        value=float(p.get("previsto_custos",0)),
-                        step=1000.0, format="%.2f",
-                        help="Substitui o previsto da unidade na curva de 12 meses")
-                else:
-                    ck_a3=p.get("check_a3",0); ck_mem=p.get("check_memoria",0)
-                    ck_for=p.get("check_formalizado",0)
-                    val_ok=p.get("validador_ok","Pendente")
-                    saving=p.get("saving_validado",0)
-                    prev_c=p.get("previsto_custos",0)
 
-                col_s, col_d = st.columns([4,1])
-                with col_s:
-                    salvar_e = st.form_submit_button("💾 Salvar",
-                                                      use_container_width=True)
-                with col_d:
-                    excluir_e = st.form_submit_button("🗑️",
-                                                       use_container_width=True)
+                if st.form_submit_button(
+                    f"💾 Salvar lançamentos de "
+                    f"{MESES_PT[mes_sel-1]}/{ano_sel}",
+                    use_container_width=True):
+                    for pid, val in valores.items():
+                        if val >= 0:
+                            lancar_real(pid, ano_sel, mes_sel, val,
+                                       obs_map.get(pid,""), user["id"])
+                    st.success("✅ Lançamentos salvos!"); st.rerun()
 
-            if salvar_e:
-                atualizar_projeto(p["id"], {
-                    "nome":nome_e,"tipo":tipo_e,"va_ggf":va_e,
-                    "responsavel":resp_e,"descricao":desc_e,"obs":obs_e,
-                    "status":status_e,"previsto_unidade":prev_e,
-                    "previsto_custos":prev_c,"atividade_atual":ativ_e,
-                    "data_conclusao_ativ":dt_e,"onde_parado":onde_e,
-                    "data_lib":dlib_e,"check_a3":int(ck_a3),
-                    "check_memoria":int(ck_mem),"check_formalizado":int(ck_for),
-                    "validador_ok":val_ok,"saving_validado":saving,
-                }, user["id"])
-                st.success("✅ Projeto atualizado!"); st.rerun()
+    # ── Alertas ───────────────────────────────────────────────────────────────
+    with tab_alertas:
+        st.markdown('<span class="st">⚠️ Lançamentos Pendentes</span>',
+                    unsafe_allow_html=True)
 
-            if excluir_e:
-                deletar_projeto(p["id"])
-                st.success("🗑️ Excluído."); st.rerun()
+        unidade_alerta = None if is_cc else user.get("unidade")
+        alerts = alertas_pendentes(unidade_alerta)
 
-    # ── Links ─────────────────────────────────────────────────────────────────
-    with tab_links:
-        projetos = listar_projetos(unidade_sel)
-        if not projetos:
-            st.info("Nenhum projeto ainda.")
+        if not alerts:
+            st.success("✅ Todos os lançamentos estão em dia!")
         else:
-            opts2 = {f"#{p['id']} {p['nome']}": p for p in projetos}
-            sel2  = st.selectbox("Projeto:", list(opts2.keys()), key="lk_sel")
-            p2    = opts2[sel2]
-            links = get_links(p2["id"])
-
-            if links:
-                for lk in links:
-                    c1,c2 = st.columns([8,1])
-                    with c1:
-                        st.markdown(f"🔗 [{lk['titulo']}]({lk['url']})")
-                    with c2:
-                        if st.button("✕", key=f"dl_{lk['id']}"):
-                            del_link(lk["id"]); st.rerun()
-            else:
-                st.info("Nenhum link cadastrado ainda.")
-
-            st.markdown("---")
-            with st.form("form_link", clear_on_submit=True):
-                c1,c2 = st.columns([2,4])
-                with c1:
-                    titulo_lk = st.text_input("Nome do link (ex: A3, Memória)")
-                with c2:
-                    url_lk = st.text_input("URL (SharePoint / OneDrive...)")
-                if st.form_submit_button("➕ Adicionar Link",
-                                          use_container_width=True):
-                    if titulo_lk and url_lk:
-                        add_link(p2["id"], titulo_lk, url_lk)
-                        st.success("✅ Link adicionado!"); st.rerun()
-
-    # ── Campeões ──────────────────────────────────────────────────────────────
-    with tab_camp:
-        camp = [p for p in listar_projetos(unidade_sel, incluir_campeao=True)
-                if p["campeao"]]
-        if not camp:
-            st.info("Nenhum projeto campeão ainda. "
-                    "O troféu é concedido após 12 meses de retorno.")
-        else:
-            for p in camp:
-                st.markdown(f"""
-                <div style="background:linear-gradient(135deg,#FFD700,#FFA500);
-                    border-radius:10px;padding:14px 18px;margin-bottom:10px;
-                    display:flex;align-items:center;gap:12px;">
-                  <span style="font-size:28px;">🏆</span>
-                  <div>
-                    <div style="font-weight:700;font-size:13px;color:#1C2B4A;">
-                      {p['nome']}</div>
-                    <div style="font-size:11px;color:#555;">
-                      {p['tipo']} · Campeão desde
-                      {str(p.get('campeao_em',''))[:7]} ·
-                      Saving: R$ {p['saving_validado']:,.0f}
-                    </div>
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
+            st.warning(f"{len(alerts)} lançamento(s) pendente(s)")
+            rows = "".join(f"""<tr>
+              <td style="font-size:11px;">{a['unidade']}</td>
+              <td style="font-size:11px;"><b>{a['projeto']}</b></td>
+              <td style="font-size:11px;text-align:center;">
+                {MESES_PT[a['mes']-1]}/{a['ano']}</td>
+            </tr>""" for a in alerts)
+            st.markdown(f"""
+            <table class="dt">
+              <thead><tr>
+                <th>Unidade</th><th>Projeto</th><th>Mês Pendente</th>
+              </tr></thead>
+              <tbody>{rows}</tbody>
+            </table>""", unsafe_allow_html=True)
