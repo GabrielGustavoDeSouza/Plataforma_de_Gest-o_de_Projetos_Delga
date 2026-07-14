@@ -1,196 +1,159 @@
 import streamlit as st
-from datetime import datetime, date
-from database import (listar_unidades, listar_projetos, lancar_real,
-                      get_lancamentos, alertas_pendentes, get_previsto_curva,
-                      atualizar_projeto, MESES_PT)
+from database import (listar_usuarios, criar_usuario, alterar_senha,
+                      listar_unidades, criar_unidade,
+                      get_todas_metas, set_meta)
+
+PERFIS_LBL = {
+    "operador":     "Operador — só vê sua unidade",
+    "cost_control": "Cost Control — valida e lança real em todas as unidades",
+    "gestor":       "Gestor — visualiza todas as unidades",
+    "admin":        "Admin — acesso total",
+}
 
 def render(user, **colors):
-    NAVY=colors.get("NAVY","#1C2B4A"); GREEN=colors.get("GREEN","#1A7A3A")
-    AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#C8202E")
-    TEAL=colors.get("TEAL","#20C997"); SILVER=colors.get("SILVER","#8A9BB0")
+    NAVY=colors.get("NAVY","#1C2B4A")
+    TEAL=colors.get("TEAL","#20C997")
 
-    ano_atual = datetime.now().year
-    is_cc = user["perfil"] in ("admin","cost_control","gestor")
+    if user["perfil"] != "admin":
+        st.error("⛔ Acesso restrito a administradores.")
+        return
 
-    if is_cc:
-        tab_fila, tab_lanc, tab_alertas = st.tabs([
-            "📋 Fila Cost Control",
-            "💰 Lançar Real Mensal",
-            "⚠️ Alertas"
-        ])
-    else:
-        tab_lanc, tab_alertas = st.tabs([
-            "💰 Lançar Real Mensal",
-            "⚠️ Alertas"
-        ])
-        tab_fila = None
+    st.markdown('<span class="st">Administração da Plataforma</span>',
+                unsafe_allow_html=True)
 
-    # ── Fila Cost Control ─────────────────────────────────────────────────────
-    if tab_fila:
-        with tab_fila:
-            st.markdown('<span class="st">Fila de Validação — Cost Control</span>',
-                        unsafe_allow_html=True)
-            st.caption("Projetos ordenados por prioridade. "
-                       "Após validar, o projeto vai ao final da fila.")
+    tab_users, tab_metas, tab_unid, tab_senha = st.tabs([
+        "👥 Usuários",
+        "🎯 Metas por Unidade",
+        "🏭 Unidades / Áreas",
+        "🔑 Alterar Senhas"
+    ])
 
-            todos = listar_projetos()
-            pendentes = [p for p in todos if not p["check_formalizado"]]
-            validados = [p for p in todos if p["check_formalizado"]]
+    # ── Usuários ──────────────────────────────────────────────────────────────
+    with tab_users:
+        usuarios = listar_usuarios()
+        rows = "".join(f"""<tr>
+          <td style="font-size:11px;font-weight:600;">{u['nome']}</td>
+          <td style="font-size:11px;">{u['email']}</td>
+          <td style="font-size:11px;">{PERFIS_LBL.get(u['perfil'], u['perfil'])}</td>
+          <td style="font-size:11px;">{u.get('unidade') or '— Global'}</td>
+          <td style="font-size:11px;">{'✅ Ativo' if u['ativo'] else '❌ Inativo'}</td>
+        </tr>""" for u in usuarios)
 
-            st.markdown(f"**{len(pendentes)} aguardando validação** "
-                        f"· {len(validados)} já validados")
+        st.markdown(f"""
+        <table class="dt">
+          <thead><tr>
+            <th>Nome</th><th>E-mail</th><th>Perfil</th>
+            <th>Unidade</th><th>Status</th>
+          </tr></thead>
+          <tbody>{rows}</tbody>
+        </table>
+        """, unsafe_allow_html=True)
 
-            if not pendentes:
-                st.success("✅ Todos os projetos estão validados!")
-            else:
-                for p in pendentes:
-                    with st.expander(
-                        f"#{p['id']} [{p['tipo'][:8]}] {p['nome']} "
-                        f"— {p['unidade_nome']}", expanded=False):
-
-                        c1,c2,c3 = st.columns(3)
-                        with c1:
-                            ck_a3  = st.checkbox("A3 e Plano desenvolvido",
-                                value=bool(p["check_a3"]),  key=f"a3_{p['id']}")
-                            ck_mem = st.checkbox("Memória de Cálculo",
-                                value=bool(p["check_memoria"]), key=f"mem_{p['id']}")
-                            ck_for = st.checkbox("Formalizado com Custos",
-                                value=bool(p["check_formalizado"]), key=f"for_{p['id']}")
-                        with c2:
-                            val_ok = st.selectbox("Validador",
-                                ["Pendente","OK","NOK"],
-                                index=["Pendente","OK","NOK"].index(
-                                    p.get("validador_ok","Pendente")),
-                                key=f"vok_{p['id']}")
-                            saving = st.number_input("Saving Validado (R$)",
-                                value=float(p["saving_validado"]),
-                                step=500.0, key=f"sav_{p['id']}")
-                        with c3:
-                            prev_c = st.number_input(
-                                "Valor Calculado Custos (R$)",
-                                value=float(p["previsto_custos"]),
-                                step=500.0, key=f"pc_{p['id']}",
-                                help="Substitui o previsto da unidade "
-                                     "na distribuição dos 12 meses")
-
-                        st.caption(f"Previsto Unidade: "
-                                   f"R$ {p['previsto_unidade']:,.0f}")
-
-                        if st.button(f"💾 Salvar #{p['id']}",
-                                     key=f"sv_{p['id']}"):
-                            atualizar_projeto(p["id"], {
-                                "check_a3": int(ck_a3),
-                                "check_memoria": int(ck_mem),
-                                "check_formalizado": int(ck_for),
-                                "validador_ok": val_ok,
-                                "saving_validado": saving,
-                                "previsto_custos": prev_c,
-                            }, user["id"])
-                            st.success("✅ Salvo! Projeto vai ao final da fila.")
-                            st.rerun()
-
-    # ── Lançamento Real ───────────────────────────────────────────────────────
-    with tab_lanc:
-        st.markdown('<span class="st">Lançar Retorno Real Mensal</span>',
-                    unsafe_allow_html=True)
-        st.info("📌 Lance o retorno do **mês anterior** "
-                "na primeira semana do mês atual.")
+        st.markdown("---")
+        st.markdown("**Criar novo usuário**")
 
         unidades = listar_unidades()
-        nomes_u  = [u["nome"] for u in unidades]
+        nomes_u  = ["— Acesso Global"] + [u["nome"] for u in unidades]
 
-        if is_cc:
-            unidade_sel = st.selectbox("Unidade:", nomes_u, key="lc_uni")
-        else:
-            unidade_sel = user.get("unidade","")
-            if unidade_sel not in nomes_u:
-                st.warning("Unidade não configurada."); return
-            st.markdown(f"**Unidade:** {unidade_sel}")
+        with st.form("form_user", clear_on_submit=True):
+            c1,c2 = st.columns(2)
+            with c1:
+                nome_u  = st.text_input("Nome completo *")
+                email_u = st.text_input("E-mail *")
+                senha_u = st.text_input("Senha inicial *", type="password")
+            with c2:
+                perfil_u  = st.selectbox("Perfil *",
+                    list(PERFIS_LBL.keys()),
+                    format_func=lambda x: PERFIS_LBL[x])
+                unidade_u = st.selectbox(
+                    "Unidade (Global para admin/gestor/Cost Control)",
+                    nomes_u)
 
-        c1,c2 = st.columns(2)
-        with c1:
-            anos = list(range(2025, 2030))
-            ano_sel = st.selectbox("Ano:", anos,
-                index=anos.index(ano_atual) if ano_atual in anos else 0)
-        with c2:
-            mes_sel = st.selectbox("Mês de referência:", range(1,13),
-                format_func=lambda m: MESES_PT[m-1])
+            if st.form_submit_button("➕ Criar Usuário",
+                                      use_container_width=True):
+                if not nome_u or not email_u or not senha_u:
+                    st.error("Preencha todos os campos obrigatórios.")
+                else:
+                    unid = None if unidade_u == "— Acesso Global" else unidade_u
+                    try:
+                        criar_usuario(nome_u, email_u, senha_u, perfil_u, unid)
+                        st.success(f"✅ Usuário **{nome_u}** criado!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro: {e}")
 
-        projetos = listar_projetos(unidade_sel)
-        proj_ativos = []
-        for p in projetos:
-            curva = get_previsto_curva(p["id"])
-            if (ano_sel, mes_sel) in curva:
-                proj_ativos.append(p)
+    # ── Metas ─────────────────────────────────────────────────────────────────
+    with tab_metas:
+        st.markdown("**Definir Meta Anual por Unidade / Área**")
 
-        if not proj_ativos:
-            st.info(f"Nenhum projeto com retorno previsto em "
-                    f"{MESES_PT[mes_sel-1]}/{ano_sel}.")
-        else:
-            lancs_exist = {
-                l["projeto_id"]: l
-                for l in get_lancamentos(unidade_nome=unidade_sel, ano=ano_sel)
-                if l["mes"] == mes_sel
-            }
+        anos = list(range(2025, 2030))
+        ano_sel = st.selectbox("Ano:", anos,
+            index=anos.index(2026) if 2026 in anos else 0,
+            key="adm_ano")
 
-            with st.form("form_lanc"):
-                valores = {}; obs_map = {}
-                for p in proj_ativos:
-                    curva  = get_previsto_curva(p["id"])
-                    prev_m = curva.get((ano_sel, mes_sel), 0)
-                    ant    = lancs_exist.get(p["id"])
-                    val_ant= float(ant["valor_real"]) if ant else 0.0
-                    obs_ant= ant["observacao"] if ant else ""
-                    badge  = "✅" if p["id"] in lancs_exist else "⏳"
+        metas = get_todas_metas(ano_sel)
 
-                    st.markdown(
-                        f"**{badge} #{p['id']} — {p['nome']}** "
-                        f"· Previsto mês: R$ {prev_m:,.0f}")
-                    c1,c2 = st.columns([2,4])
-                    with c1:
-                        valores[p["id"]] = st.number_input(
-                            "Real (R$)", value=val_ant, step=100.0,
-                            format="%.2f", key=f"rv_{p['id']}",
-                            label_visibility="collapsed")
-                    with c2:
-                        obs_map[p["id"]] = st.text_input(
-                            "Obs", value=obs_ant, key=f"ro_{p['id']}",
-                            label_visibility="collapsed",
-                            placeholder="Observação (opcional)")
-                    st.markdown("---")
+        with st.form("form_metas"):
+            vals = {}
+            for m in metas:
+                vals[m["nome"]] = st.number_input(
+                    f"{m['nome']} ({m['tipo']})",
+                    value=float(m["valor"]),
+                    step=10000.0, format="%.2f",
+                    key=f"meta_{m['nome']}_{ano_sel}")
 
-                if st.form_submit_button(
-                    f"💾 Salvar lançamentos de "
-                    f"{MESES_PT[mes_sel-1]}/{ano_sel}",
-                    use_container_width=True):
-                    for pid, val in valores.items():
-                        if val >= 0:
-                            lancar_real(pid, ano_sel, mes_sel, val,
-                                       obs_map.get(pid,""), user["id"])
-                    st.success("✅ Lançamentos salvos!"); st.rerun()
+            if st.form_submit_button("💾 Salvar Metas",
+                                      use_container_width=True):
+                for nome, val in vals.items():
+                    set_meta(nome, ano_sel, val)
+                st.success("✅ Metas salvas!")
 
-    # ── Alertas ───────────────────────────────────────────────────────────────
-    with tab_alertas:
-        st.markdown('<span class="st">⚠️ Lançamentos Pendentes</span>',
-                    unsafe_allow_html=True)
+    # ── Unidades ──────────────────────────────────────────────────────────────
+    with tab_unid:
+        unidades = listar_unidades(so_ativas=False)
+        rows_u = "".join(f"""<tr>
+          <td style="font-size:11px;font-weight:600;">{u['nome']}</td>
+          <td style="font-size:11px;">{u['tipo']}</td>
+          <td style="font-size:11px;">
+            {'✅ Ativa' if u['ativo'] else '❌ Inativa'}</td>
+        </tr>""" for u in unidades)
 
-        unidade_alerta = None if is_cc else user.get("unidade")
-        alerts = alertas_pendentes(unidade_alerta)
+        st.markdown(f"""
+        <table class="dt">
+          <thead><tr><th>Nome</th><th>Tipo</th><th>Status</th></tr></thead>
+          <tbody>{rows_u}</tbody>
+        </table>""", unsafe_allow_html=True)
 
-        if not alerts:
-            st.success("✅ Todos os lançamentos estão em dia!")
-        else:
-            st.warning(f"{len(alerts)} lançamento(s) pendente(s)")
-            rows = "".join(f"""<tr>
-              <td style="font-size:11px;">{a['unidade']}</td>
-              <td style="font-size:11px;"><b>{a['projeto']}</b></td>
-              <td style="font-size:11px;text-align:center;">
-                {MESES_PT[a['mes']-1]}/{a['ano']}</td>
-            </tr>""" for a in alerts)
-            st.markdown(f"""
-            <table class="dt">
-              <thead><tr>
-                <th>Unidade</th><th>Projeto</th><th>Mês Pendente</th>
-              </tr></thead>
-              <tbody>{rows}</tbody>
-            </table>""", unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown("**Criar nova unidade ou área**")
+
+        with st.form("form_unid", clear_on_submit=True):
+            c1,c2 = st.columns(2)
+            with c1: nome_nu = st.text_input("Nome *")
+            with c2: tipo_nu = st.selectbox("Tipo", ["planta","area"])
+
+            if st.form_submit_button("➕ Criar", use_container_width=True):
+                if nome_nu:
+                    criar_unidade(nome_nu, tipo_nu)
+                    st.success(f"✅ **{nome_nu}** criada!")
+                    st.rerun()
+
+    # ── Senhas ────────────────────────────────────────────────────────────────
+    with tab_senha:
+        usuarios = listar_usuarios()
+        nomes_us = [u["nome"] for u in usuarios]
+        sel_u    = st.selectbox("Selecionar usuário:", nomes_us)
+        user_sel = next(u for u in usuarios if u["nome"] == sel_u)
+
+        with st.form("form_senha"):
+            nova = st.text_input("Nova senha", type="password")
+            conf = st.text_input("Confirmar senha", type="password")
+
+            if st.form_submit_button("🔑 Alterar Senha"):
+                if nova != conf:
+                    st.error("As senhas não conferem.")
+                elif len(nova) < 6:
+                    st.error("Mínimo 6 caracteres.")
+                else:
+                    alterar_senha(user_sel["id"], nova)
+                    st.success(f"✅ Senha de **{sel_u}** alterada!")
