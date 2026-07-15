@@ -1,6 +1,29 @@
 Como Resolver o Erro AttributeError no Streamlit? - Manus
 
 Compartilhar
+estou tocando um projeto no git hub com claund porem acabou meus creditos oque significa este erro 
+?
+
+"
+AttributeError: This app has encountered an error. The original error message is redacted to prevent data leaks. Full error details have been recorded in the logs (if you're on Streamlit Cloud, click on 'Manage app' in the lower right of your app).
+Traceback:
+File "/mount/src/plataforma_de_gest-o_de_projetos_delga/app.py", line 251, in <module>
+    render(user, NAVY=NAVY, RED=RED, GREEN=GREEN,
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/mount/src/plataforma_de_gest-o_de_projetos_delga/pages/novo_projeto.py", line 100, in render
+    pid = criar_projeto(unidade_sel, {
+        "nome": nome, "tipo": tipo, "va_ggf": va,
+    ...<6 lines>...
+        "data_conclusao_ativ": str(dt_ativ),
+    }, user["id"])
+File "/mount/src/plataforma_de_gest-o_de_projetos_delga/database.py", line 177, in criar_projeto
+    pid = conn.lastrowid; conn.commit(); conn.close(); return pid"
+Max
+Entendi; vou explicar o que esse erro indica e apontar a correção mais provável no seu database.py.
+Max
+Para eu indicar a correção exata, você pode enviar o trecho de database.py que cria conn e executa o INSERT (aproximadamente linhas 150–180)? Também confirme: o banco é SQLite, PostgreSQL/Supabase ou MySQL, e o erro apareceu após alguma mudança de banco ou implantação no Streamlit Cloud?
 pasted_content.txt
 Texto · 13.37 KB
 o cod hoje é esse
@@ -79,19 +102,6 @@ No Streamlit Cloud, /tmp é armazenamento temporário. O banco pode ser perdido 
 Referência
 [1] Documentação do Python — sqlite3.Cursor.lastrowid
 
-me devolva ocod completo nao gosto de ficar recortando
-Max
-Claro. Vou devolver o database.py completo, já com a correção aplicada, para você substituir o arquivo inteiro sem precisar recortar trechos.
-Formatação de Código para Evitar Quebras de Linha
-
-
-Max
-Segue o database.py completo e corrigido. Basta baixar e substituir integralmente o arquivo atual no seu projeto. A sintaxe foi validada e a criação de projeto foi testada com sucesso, retornando corretamente o novo ID.
-database.py
-Código · 13.20 KB
-Ver todos os arquivos nesta tarefa
-Tarefa concluída
-Como foi este resultado?
 
 
 
@@ -263,13 +273,8 @@ def get_projeto(proj_id):
 def criar_projeto(unidade_nome, dados, user_id):
     init_db()
     conn = get_conn()
-    u = conn.execute("SELECT id FROM unidades WHERE nome=?", (unidade_nome,)).fetchone()
-
-    if not u:
-        conn.close()
-        raise ValueError(f"Unidade não encontrada: {unidade_nome}")
-
-    cursor = conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,descricao,obs,
+    u = conn.execute("SELECT id FROM unidades WHERE nome=?",(unidade_nome,)).fetchone()
+    conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,descricao,obs,
         inicio,termino,mes_primeiro_retorno,previsto_unidade,status,atividade_atual,
         data_conclusao_ativ,onde_parado,data_lib,criado_por,atualizado_por)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -279,11 +284,7 @@ def criar_projeto(unidade_nome, dados, user_id):
          dados.get("status","📝 Não iniciado"),dados.get("atividade_atual"),
          dados.get("data_conclusao_ativ"),dados.get("onde_parado"),dados.get("data_lib"),
          user_id,user_id))
-
-    pid = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return pid
+    pid = conn.lastrowid; conn.commit(); conn.close(); return pid
 
 def atualizar_projeto(proj_id, campos, user_id):
     campos["ultima_atualizacao"] = datetime.now().isoformat()
