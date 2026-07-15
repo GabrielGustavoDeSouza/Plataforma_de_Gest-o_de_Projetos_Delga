@@ -1,8 +1,7 @@
 """pages/admin.py — Administração"""
 import streamlit as st
-from database import (listar_usuarios, criar_usuario, toggle_usuario, alterar_senha,
-                      listar_unidades, criar_unidade, get_todas_metas, set_meta,
-                      PERFIS)
+from database import (listar_usuarios, criar_usuario, alterar_senha,
+                      listar_unidades, criar_unidade, get_todas_metas, set_meta)
 
 def render(user, **colors):
     NAVY=colors.get("NAVY","#1C2B4A")
