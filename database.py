@@ -1,4 +1,3 @@
-
 import sqlite3, hashlib, os
 from datetime import datetime, date
 
@@ -164,8 +163,13 @@ def get_projeto(proj_id):
 def criar_projeto(unidade_nome, dados, user_id):
     init_db()
     conn = get_conn()
-    u = conn.execute("SELECT id FROM unidades WHERE nome=?",(unidade_nome,)).fetchone()
-    conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,descricao,obs,
+    u = conn.execute("SELECT id FROM unidades WHERE nome=?", (unidade_nome,)).fetchone()
+
+    if not u:
+        conn.close()
+        raise ValueError(f"Unidade não encontrada: {unidade_nome}")
+
+    cursor = conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,descricao,obs,
         inicio,termino,mes_primeiro_retorno,previsto_unidade,status,atividade_atual,
         data_conclusao_ativ,onde_parado,data_lib,criado_por,atualizado_por)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -175,7 +179,11 @@ def criar_projeto(unidade_nome, dados, user_id):
          dados.get("status","📝 Não iniciado"),dados.get("atividade_atual"),
          dados.get("data_conclusao_ativ"),dados.get("onde_parado"),dados.get("data_lib"),
          user_id,user_id))
-    pid = conn.lastrowid; conn.commit(); conn.close(); return pid
+
+    pid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return pid
 
 def atualizar_projeto(proj_id, campos, user_id):
     campos["ultima_atualizacao"] = datetime.now().isoformat()
