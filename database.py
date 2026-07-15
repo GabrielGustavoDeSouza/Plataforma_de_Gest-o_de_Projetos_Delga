@@ -1,3 +1,103 @@
+Como Resolver o Erro AttributeError no Streamlit? - Manus
+
+Compartilhar
+pasted_content.txt
+Texto · 13.37 KB
+o cod hoje é esse
+Max
+Recebi o código. Vou localizar a criação da conexão e a função criar_projeto para identificar exatamente por que lastrowid está falhando.
+Max
+O erro está exatamente nesta linha do database.py:
+Python
+pid = conn.lastrowid
+No SQLite, lastrowid pertence ao cursor, não à conexão. Como conn é um objeto sqlite3.Connection, o Python gera AttributeError. Isso não tem relação com seus créditos do Claude; é um erro de código no acesso ao banco.
+Parte
+Situação
+conn.lastrowid
+Incorreto
+cursor.lastrowid
+Correto
+Mensagem “redacted”
+O Streamlit Cloud esconde o texto original do erro por segurança
+Substitua a função criar_projeto por esta versão:
+Python
+def criar_projeto(unidade_nome, dados, user_id):
+    init_db()
+    conn = get_conn()
+
+    u = conn.execute(
+        "SELECT id FROM unidades WHERE nome=?",
+        (unidade_nome,),
+    ).fetchone()
+
+    if not u:
+        conn.close()
+        raise ValueError(f"Unidade não encontrada: {unidade_nome}")
+
+    cursor = conn.execute(
+        """INSERT INTO projetos (
+            unidade_id, nome, tipo, va_ggf, responsavel, descricao, obs,
+            inicio, termino, mes_primeiro_retorno, previsto_unidade,
+            status, atividade_atual, data_conclusao_ativ, onde_parado,
+            data_lib, criado_por, atualizado_por
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            u["id"],
+            dados["nome"],
+            dados["tipo"],
+            dados.get("va_ggf"),
+            dados.get("responsavel"),
+            dados.get("descricao"),
+            dados.get("obs"),
+            dados.get("inicio"),
+            dados.get("termino"),
+            dados.get("mes_primeiro_retorno"),
+            dados.get("previsto_unidade", 0),
+            dados.get("status", "📝 Não iniciado"),
+            dados.get("atividade_atual"),
+            dados.get("data_conclusao_ativ"),
+            dados.get("onde_parado"),
+            dados.get("data_lib"),
+            user_id,
+            user_id,
+        ),
+    )
+
+    pid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return pid
+A correção essencial é:
+Python
+cursor = conn.execute("INSERT ...", valores)
+pid = cursor.lastrowid
+Depois de alterar o arquivo, faça o commit e push para o GitHub. O Streamlit Cloud normalmente detectará a atualização e reiniciará o aplicativo.
+Há ainda um ponto importante: seu banco está configurado como:
+Python
+DB_PATH = "/tmp/plataforma_delga.db"
+No Streamlit Cloud, /tmp é armazenamento temporário. O banco pode ser perdido quando o aplicativo reiniciar ou for recriado. Para uso real, considere um banco persistente, como PostgreSQL ou Supabase. Isso não causou o erro atual, mas pode causar perda futura dos projetos cadastrados.
+Referência
+[1] Documentação do Python — sqlite3.Cursor.lastrowid
+
+me devolva ocod completo nao gosto de ficar recortando
+Max
+Claro. Vou devolver o database.py completo, já com a correção aplicada, para você substituir o arquivo inteiro sem precisar recortar trechos.
+Formatação de Código para Evitar Quebras de Linha
+
+
+Max
+Segue o database.py completo e corrigido. Basta baixar e substituir integralmente o arquivo atual no seu projeto. A sintaxe foi validada e a criação de projeto foi testada com sucesso, retornando corretamente o novo ID.
+database.py
+Código · 13.20 KB
+Ver todos os arquivos nesta tarefa
+Tarefa concluída
+Como foi este resultado?
+
+
+
+
+Manus is an AI Agent and can make mistakes. Please double-check before use.
+
 import sqlite3, hashlib, os
 from datetime import datetime, date
 
@@ -163,8 +263,13 @@ def get_projeto(proj_id):
 def criar_projeto(unidade_nome, dados, user_id):
     init_db()
     conn = get_conn()
-    u = conn.execute("SELECT id FROM unidades WHERE nome=?",(unidade_nome,)).fetchone()
-    conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,descricao,obs,
+    u = conn.execute("SELECT id FROM unidades WHERE nome=?", (unidade_nome,)).fetchone()
+
+    if not u:
+        conn.close()
+        raise ValueError(f"Unidade não encontrada: {unidade_nome}")
+
+    cursor = conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,descricao,obs,
         inicio,termino,mes_primeiro_retorno,previsto_unidade,status,atividade_atual,
         data_conclusao_ativ,onde_parado,data_lib,criado_por,atualizado_por)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -174,7 +279,11 @@ def criar_projeto(unidade_nome, dados, user_id):
          dados.get("status","📝 Não iniciado"),dados.get("atividade_atual"),
          dados.get("data_conclusao_ativ"),dados.get("onde_parado"),dados.get("data_lib"),
          user_id,user_id))
-    pid = conn.lastrowid; conn.commit(); conn.close(); return pid
+
+    pid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return pid
 
 def atualizar_projeto(proj_id, campos, user_id):
     campos["ultima_atualizacao"] = datetime.now().isoformat()
