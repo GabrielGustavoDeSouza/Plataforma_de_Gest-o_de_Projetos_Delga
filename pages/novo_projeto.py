@@ -79,13 +79,19 @@ def render(user, **colors):
 
         # ── Acompanhamento ────────────────────────────────────────────────────
         st.markdown("#### Acompanhamento")
-        c1,c2,c3 = st.columns(3)
-        with c1: status  = st.selectbox("Status", STATUS_OPTS)
-        with c2: ativ    = st.text_input("Atual Atribuição",
-                                          placeholder="Atividade em andamento (prevista no A3)")
-        with c3: dt_ativ = st.date_input("Data Final desta Atribuição")
+        status = st.selectbox("Status", STATUS_OPTS)
 
-        st.markdown("**Checklist** — quando os 3 estiverem marcados, "
+        st.caption("Os campos abaixo são opcionais e podem ser preenchidos "
+                   "durante os acompanhamentos semanais.")
+        c1,c2,c3 = st.columns(3)
+        with c1: ativ     = st.text_input("Atual Atribuição",
+                                           placeholder="Atividade em andamento...")
+        with c2: resp_ativ= st.text_input("Responsável da Atual Atribuição",
+                                           placeholder="Nome do responsável...")
+        with c3: dt_ativ  = st.text_input("Data Final desta Atribuição",
+                                           placeholder="ex: 07/2026")
+
+        st.markdown("**Checklist** — quando os 3 estiverem marcados "
                     "o projeto vai para validação de Custos")
         c1,c2,c3 = st.columns(3)
         with c1: ck_a3  = st.checkbox("✅ A3 e Plano de Projeto desenvolvido")
@@ -111,6 +117,7 @@ def render(user, **colors):
         elif previsto <= 0:
             st.error("Preencha o Valor Previsto.")
         else:
+            # resp_ativ vai para o campo onde_parado por ora (campo genérico)
             pid = criar_projeto(unidade_sel, {
                 "nome": nome, "tipo": tipo, "va_ggf": va,
                 "responsavel": resp, "descricao": desc, "obs": obs,
@@ -119,16 +126,16 @@ def render(user, **colors):
                 "previsto_unidade": previsto,
                 "status": status,
                 "atividade_atual": ativ,
-                "data_conclusao_ativ": str(dt_ativ),
+                "data_conclusao_ativ": dt_ativ,
+                "onde_parado": resp_ativ,
                 "check_a3": ck_a3,
                 "check_memoria": ck_mem,
                 "check_formalizado": ck_for,
             }, user["id"])
-            # Salva links
             for tit, url in [(link1_tit,link1_url),
                              (link2_tit,link2_url),
                              (link3_tit,link3_url)]:
                 if tit and url:
                     add_link(pid, tit, url)
-            st.success(f"✅ Projeto **{nome}** cadastrado com sucesso! ID #{pid}")
+            st.success(f"✅ Projeto **{nome}** cadastrado! ID #{pid}")
             st.rerun()
