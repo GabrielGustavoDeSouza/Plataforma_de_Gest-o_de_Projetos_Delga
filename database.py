@@ -3,6 +3,9 @@ from datetime import datetime, date
 
 DB_PATH = "/tmp/plataforma_delga.db"
 
+EXTRA_DRE_TIPOS = {"Kaizen - Custo Evitado","Kaizen - Capital de Giro","Meta Executiva"}
+def is_extra_dre(tipo): return tipo in EXTRA_DRE_TIPOS
+
 def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -77,12 +80,13 @@ TIPOS_PROJETO = ["BSW","Kaizen","Kaizen - Ganho Recorrente","Kaizen - Custo Evit
 VA_GGF_OPTS  = ["VA","GGF","Material Auxiliar"]
 STATUS_OPTS  = ["📝 Não iniciado","⏳ Em Execução","✓ Concluído","⚠️ Suspenso"]
 MESES_PT     = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
-PERFIS       = ["facilitador","cost_control","gestor","admin"]
+PERFIS       = ["facilitador","gestor","cost_control","visualizador","admin"]
 PERFIS_LBL   = {
-    "facilitador":  "Facilitador — cria/edita só sua unidade",
-    "cost_control": "Cost Control — valida e lança real em todas as unidades",
-    "gestor":       "Gestor — visualiza todas, edita só a sua",
-    "admin":        "Admin — acesso total",
+    "facilitador":   "Facilitador — cria/edita só sua unidade, vê só sua unidade",
+    "gestor":        "Gestor — cria/edita só sua unidade, vê todas",
+    "cost_control":  "Cost Control — valida e lança real em todas as unidades",
+    "visualizador":  "Visualizador — apenas visualiza unidade(s) definida(s) e dashboard",
+    "admin":         "Admin — acesso total",
 }
 
 def autenticar(email, senha):
@@ -178,8 +182,7 @@ def criar_projeto(unidade_nome, dados, user_id):
     init_db()
     conn = get_conn()
     u = conn.execute("SELECT id FROM unidades WHERE nome=?",(unidade_nome,)).fetchone()
-    if not u:
-        conn.close(); raise ValueError(f"Unidade não encontrada: {unidade_nome}")
+    if not u: conn.close(); raise ValueError(f"Unidade não encontrada: {unidade_nome}")
     cursor = conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,
         descricao,obs,inicio,termino,mes_primeiro_retorno,previsto_unidade,status,
         atividade_atual,data_conclusao_ativ,onde_parado,data_lib,
@@ -264,12 +267,16 @@ def get_lancamentos(unidade_nome=None, ano=None, proj_id=None):
     conn.close(); return [dict(r) for r in rows]
 
 def get_real_por_mes(unidade_nome, ano):
+    # Só projetos DRE
     lancs = get_lancamentos(unidade_nome=unidade_nome, ano=ano)
     r = {m: 0.0 for m in range(1,13)}
-    for l in lancs: r[l["mes"]] += l["valor_real"]
+    for l in lancs:
+        if not is_extra_dre(l.get("tipo","")):
+            r[l["mes"]] += l["valor_real"]
     return r
 
 def get_previsto_curva(proj_id):
+    """Curva de previsto mensal — 12 meses a partir do 1º retorno."""
     p = get_projeto(proj_id)
     if not p or not p.get("mes_primeiro_retorno"): return {}
     valor = p["previsto_custos"] if p["previsto_custos"]>0 else p["previsto_unidade"]
@@ -286,9 +293,11 @@ def get_previsto_curva(proj_id):
     return curva
 
 def alertas_pendentes(unidade_nome=None):
+    """Só projetos DRE geram alertas de lançamento."""
     projetos = listar_projetos(unidade_nome)
     hoje = date.today(); alertas = []
     for p in projetos:
+        if is_extra_dre(p["tipo"]): continue  # Extra DRE não tem lançamento
         if not p.get("mes_primeiro_retorno"): continue
         curva = get_previsto_curva(p["id"])
         lancs = {(l["ano"],l["mes"]) for l in get_lancamentos(proj_id=p["id"])}
@@ -299,29 +308,47 @@ def alertas_pendentes(unidade_nome=None):
     return alertas
 
 def kpis_unidade(unidade_nome, ano):
+    """
+    Previsto = soma das frações do ano corrente (curva de 12m dentro do ano)
+    Extra DRE = soma previsto_unidade dos tipos Extra DRE dentro do ano
+    Validado = saving_validado só DRE
+    Real = soma lançamentos DRE do ano
+    """
     init_db()
     projetos = listar_projetos(unidade_nome)
     real_mes = get_real_por_mes(unidade_nome, ano)
-    meta = get_meta(unidade_nome, ano)
-    prev_mes = {m:0.0 for m in range(1,13)}
+    meta     = get_meta(unidade_nome, ano)
+
+    prev_mes     = {m: 0.0 for m in range(1,13)}
+    total_prev   = 0.0
+    total_val    = 0.0
+    total_extra  = 0.0
+
     for p in projetos:
-        for (y,m),v in get_previsto_curva(p["id"]).items():
-            if y==ano: prev_mes[m]+=v
-    total_prev = sum(p["previsto_custos"] if p["previsto_custos"]>0
-                     else p["previsto_unidade"] for p in projetos)
-    total_val  = sum(p["saving_validado"] for p in projetos)
+        extra = is_extra_dre(p["tipo"])
+        curva = get_previsto_curva(p["id"])
+        # Soma só as frações dentro do ano corrente
+        prev_ano = sum(v for (y,m),v in curva.items() if y==ano)
+
+        if extra:
+            total_extra += prev_ano  # Extra DRE soma no Extra DRE
+        else:
+            total_prev += prev_ano   # DRE soma no Previsto
+            total_val  += p["saving_validado"]
+            for mes in range(1,13):
+                prev_mes[mes] += curva.get((ano,mes), 0)
+
     total_real = sum(real_mes.values())
-    extra_dre  = sum(p["previsto_custos"] if p["previsto_custos"]>0
-                     else p["previsto_unidade"] for p in projetos
-                     if p["tipo"] in ("Kaizen - Custo Evitado","Kaizen - Capital de Giro"))
+    pct_meta   = total_real/meta*100 if meta>0 else 0
+
     return {
         "n_projetos":  len(projetos),
         "previsto":    total_prev,
         "validado":    total_val,
         "real":        total_real,
-        "extra_dre":   extra_dre,
+        "extra_dre":   total_extra,
         "meta":        meta,
-        "pct_meta":    total_real/meta*100 if meta>0 else 0,
+        "pct_meta":    pct_meta,
         "prev_mensal": [prev_mes[m] for m in range(1,13)],
         "real_mensal": [real_mes[m] for m in range(1,13)],
         "projetos":    projetos,
