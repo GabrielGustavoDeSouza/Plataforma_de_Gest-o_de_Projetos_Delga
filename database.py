@@ -15,7 +15,7 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS usuarios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nome TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
-        senha_hash TEXT NOT NULL, perfil TEXT NOT NULL DEFAULT 'operador',
+        senha_hash TEXT NOT NULL, perfil TEXT NOT NULL DEFAULT 'facilitador',
         unidade TEXT, ativo INTEGER DEFAULT 1,
         criado_em TEXT DEFAULT (datetime('now')))""")
     c.execute("""CREATE TABLE IF NOT EXISTS unidades (
@@ -72,10 +72,18 @@ def init_db():
 def hash_senha(s): return hashlib.sha256(s.encode()).hexdigest()
 
 TIPOS_PROJETO = ["BSW","Kaizen","Kaizen - Ganho Recorrente","Kaizen - Custo Evitado",
-    "Kaizen - Capital de Giro","Redução de Custo","Você Resolve","Meta Executiva","Estratégia Comercial"]
-VA_GGF_OPTS = ["VA","GGF","Material Auxiliar"]
-STATUS_OPTS = ["📝 Não iniciado","⏳ Em Execução","✓ Concluído","⚠️ Suspenso"]
-MESES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+    "Kaizen - Capital de Giro","Redução de Custo","Você Resolve",
+    "Meta Executiva","Estratégia Comercial"]
+VA_GGF_OPTS  = ["VA","GGF","Material Auxiliar"]
+STATUS_OPTS  = ["📝 Não iniciado","⏳ Em Execução","✓ Concluído","⚠️ Suspenso"]
+MESES_PT     = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+PERFIS       = ["facilitador","cost_control","gestor","admin"]
+PERFIS_LBL   = {
+    "facilitador":  "Facilitador — cria/edita só sua unidade",
+    "cost_control": "Cost Control — valida e lança real em todas as unidades",
+    "gestor":       "Gestor — visualiza todas, edita só a sua",
+    "admin":        "Admin — acesso total",
+}
 
 def autenticar(email, senha):
     init_db()
@@ -96,6 +104,12 @@ def criar_usuario(nome, email, senha, perfil, unidade):
     conn = get_conn()
     conn.execute("INSERT INTO usuarios (nome,email,senha_hash,perfil,unidade) VALUES (?,?,?,?,?)",
         (nome, email.lower(), hash_senha(senha), perfil, unidade or None))
+    conn.commit(); conn.close()
+
+def editar_usuario(user_id, campos):
+    conn = get_conn()
+    sets = ", ".join(f"{k}=?" for k in campos)
+    conn.execute(f"UPDATE usuarios SET {sets} WHERE id=?", list(campos.values())+[user_id])
     conn.commit(); conn.close()
 
 def alterar_senha(user_id, nova):
@@ -163,27 +177,22 @@ def get_projeto(proj_id):
 def criar_projeto(unidade_nome, dados, user_id):
     init_db()
     conn = get_conn()
-    u = conn.execute("SELECT id FROM unidades WHERE nome=?", (unidade_nome,)).fetchone()
-
+    u = conn.execute("SELECT id FROM unidades WHERE nome=?",(unidade_nome,)).fetchone()
     if not u:
-        conn.close()
-        raise ValueError(f"Unidade não encontrada: {unidade_nome}")
-
-    cursor = conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,descricao,obs,
-        inicio,termino,mes_primeiro_retorno,previsto_unidade,status,atividade_atual,
-        data_conclusao_ativ,onde_parado,data_lib,criado_por,atualizado_por)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        conn.close(); raise ValueError(f"Unidade não encontrada: {unidade_nome}")
+    cursor = conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,
+        descricao,obs,inicio,termino,mes_primeiro_retorno,previsto_unidade,status,
+        atividade_atual,data_conclusao_ativ,onde_parado,data_lib,
+        check_a3,check_memoria,check_formalizado,criado_por,atualizado_por)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (u["id"],dados["nome"],dados["tipo"],dados.get("va_ggf"),dados.get("responsavel"),
          dados.get("descricao"),dados.get("obs"),dados.get("inicio"),dados.get("termino"),
          dados.get("mes_primeiro_retorno"),dados.get("previsto_unidade",0),
          dados.get("status","📝 Não iniciado"),dados.get("atividade_atual"),
          dados.get("data_conclusao_ativ"),dados.get("onde_parado"),dados.get("data_lib"),
-         user_id,user_id))
-
-    pid = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return pid
+         int(dados.get("check_a3",0)),int(dados.get("check_memoria",0)),
+         int(dados.get("check_formalizado",0)),user_id,user_id))
+    pid = cursor.lastrowid; conn.commit(); conn.close(); return pid
 
 def atualizar_projeto(proj_id, campos, user_id):
     campos["ultima_atualizacao"] = datetime.now().isoformat()
@@ -206,11 +215,10 @@ def verificar_campeoes():
     hoje = date.today()
     for p in projetos:
         try:
-            mpr_str = str(p["mes_primeiro_retorno"])[:7]
-            mpr = datetime.strptime(mpr_str, "%Y-%m").date()
-            ano_c = mpr.year + (mpr.month + 11) // 12
-            mes_c = (mpr.month + 11) % 12 + 1
-            if hoje >= date(ano_c, mes_c, 1):
+            mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m").date()
+            ano_c = mpr.year+(mpr.month+11)//12
+            mes_c = (mpr.month+11)%12+1
+            if hoje >= date(ano_c,mes_c,1):
                 conn.execute("UPDATE projetos SET campeao=1,campeao_em=? WHERE id=?",
                              (hoje.isoformat(),p["id"]))
         except: pass
@@ -286,7 +294,8 @@ def alertas_pendentes(unidade_nome=None):
         lancs = {(l["ano"],l["mes"]) for l in get_lancamentos(proj_id=p["id"])}
         for (ano,mes) in curva:
             if date(ano,mes,1)<date(hoje.year,hoje.month,1) and (ano,mes) not in lancs:
-                alertas.append({"projeto":p["nome"],"unidade":p["unidade_nome"],"ano":ano,"mes":mes,"proj_id":p["id"]})
+                alertas.append({"projeto":p["nome"],"unidade":p["unidade_nome"],
+                                "ano":ano,"mes":mes,"proj_id":p["id"]})
     return alertas
 
 def kpis_unidade(unidade_nome, ano):
@@ -298,14 +307,19 @@ def kpis_unidade(unidade_nome, ano):
     for p in projetos:
         for (y,m),v in get_previsto_curva(p["id"]).items():
             if y==ano: prev_mes[m]+=v
-    total_prev = sum(p["previsto_custos"] if p["previsto_custos"]>0 else p["previsto_unidade"] for p in projetos)
+    total_prev = sum(p["previsto_custos"] if p["previsto_custos"]>0
+                     else p["previsto_unidade"] for p in projetos)
     total_val  = sum(p["saving_validado"] for p in projetos)
     total_real = sum(real_mes.values())
+    extra_dre  = sum(p["previsto_custos"] if p["previsto_custos"]>0
+                     else p["previsto_unidade"] for p in projetos
+                     if p["tipo"] in ("Kaizen - Custo Evitado","Kaizen - Capital de Giro"))
     return {
         "n_projetos":  len(projetos),
         "previsto":    total_prev,
         "validado":    total_val,
         "real":        total_real,
+        "extra_dre":   extra_dre,
         "meta":        meta,
         "pct_meta":    total_real/meta*100 if meta>0 else 0,
         "prev_mensal": [prev_mes[m] for m in range(1,13)],
