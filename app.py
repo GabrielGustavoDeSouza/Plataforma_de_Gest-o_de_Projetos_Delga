@@ -1,7 +1,8 @@
 import streamlit as st
 import plotly.graph_objects as go
-from datetime import datetime
-from database import listar_unidades, listar_projetos, get_lancamentos, kpis_unidade, init_db
+from datetime import datetime, date
+from database import (listar_unidades, listar_projetos, get_lancamentos,
+                      kpis_unidade, get_todas_metas, get_links, init_db)
 from auth import login_page, sidebar_user, require_login
 
 st.set_page_config(
@@ -39,11 +40,9 @@ header[data-testid="stHeader"]{{display:none;}}
 .kpi-card.green{{border-left-color:{GREEN};}}
 .kpi-card.amber{{border-left-color:{AMBER};}}
 .kpi-card.red{{border-left-color:{RED};}}
-.kpi-card.teal{{border-left-color:{TEAL};}}
-.kpi-card.purple{{border-left-color:#9B59B6;}}
 .kpi-l{{font-size:9px;font-weight:600;color:{SILVER};text-transform:uppercase;
   letter-spacing:.8px;margin-bottom:6px;}}
-.kpi-v{{font-size:20px;font-weight:700;color:{NAVY};}}
+.kpi-v{{font-size:18px;font-weight:700;color:{NAVY};}}
 .kpi-d{{font-size:10px;color:{SILVER};margin-top:3px;}}
 .sc{{background:white;border-radius:12px;padding:20px 22px;
   box-shadow:0 1px 4px rgba(28,43,74,.06),0 4px 16px rgba(28,43,74,.04);
@@ -67,8 +66,8 @@ if "user" not in st.session_state:
 require_login()
 sidebar_user()
 
-user = st.session_state["user"]
-ano_atual = datetime.now().year
+user     = st.session_state["user"]
+ano_atual= datetime.now().year
 
 st.markdown(f"""
 <div class="plat-header">
@@ -85,17 +84,24 @@ with st.sidebar:
     st.markdown(f'<span style="font-size:11px;font-weight:700;color:{NAVY};'
                 f'text-transform:uppercase;letter-spacing:.5px;">Menu</span>',
                 unsafe_allow_html=True)
-
-    # Minha Conta aparece para todos
-    opcoes = ["🏠 Dashboard Global", "🏭 Minha Unidade",
-              "➕ Projetos", "💰 Lançar Real", "👤 Minha Conta"]
+    opcoes = ["🏠 Dashboard Global","🏭 Minha Unidade",
+              "➕ Novo Projeto","💰 Lançar Real","👤 Minha Conta"]
     if user["perfil"] == "admin":
         opcoes.append("⚙️ Administração")
-
     pagina = st.radio("", opcoes, label_visibility="collapsed")
 
 def fmt_mi(v): return f"R$ {v/1e6:.2f} Mi" if abs(v)>=1e6 else f"R$ {v/1e3:.1f} k"
-def fmt_pct(v): return f"{v:.1f}%"
+def fmt_brl(v): return f"R$ {v:,.0f}" if v else "—"
+
+def linha_atrasada(p):
+    concluido = "Concluído" in str(p.get("status",""))
+    if concluido: return False
+    termino = str(p.get("termino","") or "").strip()
+    if not termino or termino in ("None","nan",""): return False
+    try:
+        ano,mes = int(termino[:4]),int(termino[5:7])
+        return date(ano,mes,28) < date.today()
+    except: return False
 
 # ── Dashboard Global ──────────────────────────────────────────────────────────
 if pagina == "🏠 Dashboard Global":
@@ -103,22 +109,18 @@ if pagina == "🏠 Dashboard Global":
     unidades   = listar_unidades()
     todos_proj = listar_projetos()
     todos_lanc = get_lancamentos(ano=ano_atual)
-
-    from database import get_todas_metas
     metas_ano  = get_todas_metas(ano_atual)
     total_meta = sum(m["valor"] for m in metas_ano)
-
-    total_prev = sum(
-        p["previsto_custos"] if p["previsto_custos"] > 0 else p["previsto_unidade"]
-        for p in todos_proj)
+    total_prev = sum(p["previsto_custos"] if p["previsto_custos"]>0
+                     else p["previsto_unidade"] for p in todos_proj)
     total_val  = sum(p["saving_validado"] for p in todos_proj)
     total_real = sum(l["valor_real"] for l in todos_lanc)
     n_proj     = len(todos_proj)
-    pct        = total_real / total_meta * 100 if total_meta > 0 else 0
-    extra_dre  = sum(
-        p["previsto_custos"] if p["previsto_custos"] > 0 else p["previsto_unidade"]
-        for p in todos_proj
-        if p["tipo"] in ("Kaizen - Custo Evitado","Kaizen - Capital de Giro"))
+    pct        = total_real/total_meta*100 if total_meta>0 else 0
+    extra_dre  = sum(p["previsto_custos"] if p["previsto_custos"]>0
+                     else p["previsto_unidade"] for p in todos_proj
+                     if p["tipo"] in ("Kaizen - Custo Evitado",
+                                      "Kaizen - Capital de Giro"))
 
     st.markdown(f"""
     <div class="kpi-grid">
@@ -130,9 +132,8 @@ if pagina == "🏠 Dashboard Global":
       <div class="kpi-card amber">
         <div class="kpi-l">Total Previsto</div>
         <div class="kpi-v">{fmt_mi(total_prev)}</div>
-        <div class="kpi-d">{n_proj} iniciativas</div>
       </div>
-      <div class="kpi-card teal">
+      <div class="kpi-card" style="border-left-color:{TEAL};">
         <div class="kpi-l">Saving Validado</div>
         <div class="kpi-v" style="color:{TEAL};">{fmt_mi(total_val)}</div>
       </div>
@@ -142,15 +143,14 @@ if pagina == "🏠 Dashboard Global":
       </div>
       <div class="kpi-card" style="border-left-color:{RED};">
         <div class="kpi-l">% Atingimento</div>
-        <div class="kpi-v" style="color:{RED};">{fmt_pct(pct)}</div>
+        <div class="kpi-v" style="color:{RED};">{pct:.1f}%</div>
         <div class="kpi-d">Real / Meta</div>
       </div>
       <div class="kpi-card" style="border-left-color:#9B59B6;">
         <div class="kpi-l">Extra DRE</div>
         <div class="kpi-v" style="color:#9B59B6;">{fmt_mi(extra_dre)}</div>
-        <div class="kpi-d">Fora do DRE</div>
       </div>
-      <div class="kpi-card" style="border-left-color:{NAVY};">
+      <div class="kpi-card">
         <div class="kpi-l">Iniciativas</div>
         <div class="kpi-v">{n_proj}</div>
         <div class="kpi-d">Projetos ativos</div>
@@ -158,17 +158,17 @@ if pagina == "🏠 Dashboard Global":
     </div>
     """, unsafe_allow_html=True)
 
+    # Performance por unidade
     st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown('<span class="st">Performance por Unidade</span>',
                 unsafe_allow_html=True)
-
     rows_html = ""
     for u in unidades:
         kpi   = kpis_unidade(u["nome"], ano_atual)
         meta  = kpi["meta"] or 1
-        pct_u = kpi["real"] / meta * 100 if meta else 0
+        pct_u = kpi["real"]/meta*100 if meta else 0
         bar_c = GREEN if pct_u>=60 else (AMBER if pct_u>=30 else RED)
-        bar_w = min(pct_u, 100)
+        bar_w = min(pct_u,100)
         badge = (f'<span style="background:#E6F4EC;color:{GREEN};font-size:10px;'
                  f'padding:2px 8px;border-radius:10px;font-weight:600;">DESTAQUE ✓</span>'
                  if pct_u>=30 else
@@ -194,50 +194,168 @@ if pagina == "🏠 Dashboard Global":
           </td>
           <td>{badge}</td>
         </tr>"""
-
     st.markdown(f"""
-    <table class="dt">
-      <thead><tr>
-        <th>Unidade</th><th>Tipo</th>
-        <th style="text-align:right;">Meta</th>
-        <th style="text-align:right;color:{AMBER};">Previsto</th>
-        <th style="text-align:right;color:{TEAL};">Validado</th>
-        <th style="text-align:right;color:{GREEN};">Real</th>
-        <th>% Meta</th><th>Status</th>
-      </tr></thead>
-      <tbody>{rows_html}</tbody>
-    </table>
+    <table class="dt"><thead><tr>
+      <th>Unidade</th><th>Tipo</th>
+      <th style="text-align:right;">Meta</th>
+      <th style="text-align:right;color:{AMBER};">Previsto</th>
+      <th style="text-align:right;color:{TEAL};">Validado</th>
+      <th style="text-align:right;color:{GREEN};">Real</th>
+      <th>% Meta</th><th>Status</th>
+    </tr></thead><tbody>{rows_html}</tbody></table>
     """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # Lista consolidada de projetos
+    st.markdown('<div class="sc">', unsafe_allow_html=True)
+    st.markdown('<span class="st">Todos os Projetos</span>',
+                unsafe_allow_html=True)
+
+    c1,c2,c3,c4 = st.columns([2,2,2,3])
+    with c1:
+        f_uni = st.multiselect("Unidade:",
+                                [u["nome"] for u in unidades],
+                                default=[], placeholder="Todas",
+                                key="gp_uni")
+    with c2:
+        f_st = st.multiselect("Status:",
+                               list({p["status"] for p in todos_proj}),
+                               default=[], placeholder="Todos",
+                               key="gp_st")
+    with c3:
+        f_ord = st.selectbox("Ordenar por:",
+                              ["Unidade","Maior Previsto","Maior Real",
+                               "Maior Validado","Atrasados primeiro"],
+                              key="gp_ord")
+    with c4:
+        f_nm = st.text_input("🔍 Buscar",
+                              placeholder="Nome do projeto...",
+                              key="gp_nm")
+
+    pf = todos_proj[:]
+    if f_uni: pf = [p for p in pf if p["unidade_nome"] in f_uni]
+    if f_st:  pf = [p for p in pf if p["status"] in f_st]
+    if f_nm:  pf = [p for p in pf if f_nm.lower() in p["nome"].lower()]
+
+    ord_map = {
+        "Unidade":           lambda p: p["unidade_nome"],
+        "Maior Previsto":    lambda p: -(p["previsto_custos"] if p["previsto_custos"]>0
+                                         else p["previsto_unidade"]),
+        "Maior Real":        lambda p: -p.get("saving_validado",0),
+        "Maior Validado":    lambda p: -p.get("saving_validado",0),
+        "Atrasados primeiro":lambda p: (0 if linha_atrasada(p) else 1),
+    }
+    pf = sorted(pf, key=ord_map.get(f_ord, lambda p: p["unidade_nome"]))
+
+    atrasados = sum(1 for p in pf if linha_atrasada(p))
+    st.markdown(f"<p style='font-size:11px;color:{SILVER};margin:4px 0 10px;'>"
+                f"<b>{len(pf)}</b> projetos"
+                + (f' · <span style="color:{RED};">⚠️ {atrasados} atrasado(s)</span>'
+                   if atrasados else "")
+                + "</p>", unsafe_allow_html=True)
+
+    for p in pf:
+        atrasado  = linha_atrasada(p)
+        concluido = "Concluído" in str(p.get("status",""))
+        border_c  = RED if atrasado else (GREEN if concluido else NAVY)
+        txt_c     = RED if atrasado else NAVY
+        sc_map    = {"✓ Concluído":GREEN,"⏳ Em Execução":AMBER,
+                     "📝 Não iniciado":SILVER,"⚠️ Suspenso":RED}
+        sc        = sc_map.get(p["status"],SILVER)
+        chk       = ("✅" if p["check_a3"] else "⬜") + \
+                    ("✅" if p["check_memoria"] else "⬜") + \
+                    ("✅" if p["check_formalizado"] else "⬜")
+        links     = get_links(p["id"])
+        link_html = " ".join(
+            f'<a href="{lk["url"]}" target="_blank" style="'
+            f'display:inline-block;background:#EEF0F3;color:{NAVY};'
+            f'font-size:10px;padding:2px 8px;border-radius:8px;'
+            f'text-decoration:none;margin-right:4px;">🔗 {lk["titulo"]}</a>'
+            for lk in links) if links else ""
+        prev_val = p["previsto_custos"] if p["previsto_custos"]>0 \
+                   else p["previsto_unidade"]
+
+        st.markdown(f"""
+        <div style="border-left:4px solid {border_c};background:white;
+             border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:6px;
+             box-shadow:0 1px 4px rgba(28,43,74,.06);">
+          <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:10px;color:{SILVER};margin-bottom:2px;">
+                {p['unidade_nome']} · {p['tipo']}</div>
+              <div style="font-size:12px;font-weight:700;color:{txt_c};">
+                #{p['id']} — {p['nome']}
+                {'<span style="color:#C8202E;font-size:10px;margin-left:6px;">⚠️ ATRASADO</span>' if atrasado else ''}
+              </div>
+              <div style="font-size:10px;color:{SILVER};margin-top:2px;">
+                Resp: <b>{p.get('responsavel','—')}</b> &nbsp;·&nbsp;
+                VA/GGF: {p.get('va_ggf','—')} &nbsp;·&nbsp;
+                Término: <b style="color:{RED if atrasado else '#333'};">
+                  {str(p.get('termino','—') or '—')[:7]}</b>
+              </div>
+              {f'<div style="margin-top:4px;">{link_html}</div>' if link_html else ''}
+            </div>
+            <div style="display:flex;gap:14px;align-items:center;flex-shrink:0;flex-wrap:wrap;">
+              <div style="text-align:center;">
+                <div style="font-size:9px;color:{SILVER};text-transform:uppercase;
+                     letter-spacing:.4px;">Previsto</div>
+                <div style="font-size:12px;font-weight:700;color:{AMBER};">
+                  {fmt_brl(prev_val)}</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-size:9px;color:{SILVER};text-transform:uppercase;
+                     letter-spacing:.4px;">Validado</div>
+                <div style="font-size:12px;font-weight:700;color:{TEAL};">
+                  {fmt_brl(p['saving_validado'])}</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-size:9px;color:{SILVER};text-transform:uppercase;
+                     letter-spacing:.4px;">Status</div>
+                <div style="font-size:11px;font-weight:600;color:{sc};">
+                  {p['status']}</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-size:9px;color:{SILVER};text-transform:uppercase;
+                     letter-spacing:.4px;">A3/Mem/Form</div>
+                <div style="font-size:13px;">{chk}</div>
+              </div>
+            </div>
+          </div>
+          {f'<div style="margin-top:6px;font-size:10px;color:#555;background:#F9F9F9;padding:5px 10px;border-radius:6px;">📌 {p["atividade_atual"]}</div>' if p.get('atividade_atual') else ''}
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Gráfico evolução
     meses = ["Jan","Fev","Mar","Abr","Mai","Jun",
              "Jul","Ago","Set","Out","Nov","Dez"]
     fig = go.Figure()
     cores = [NAVY,"#2E86C1","#27AE60","#E67E22","#8E44AD",
              "#C0392B","#16A085","#D35400"]
-    for i, u in enumerate(unidades[:8]):
-        kpi  = kpis_unidade(u["nome"], ano_atual)
+    for i,u in enumerate(unidades[:8]):
+        kpi  = kpis_unidade(u["nome"],ano_atual)
         acum = []; acc = 0
         for v in kpi["real_mensal"]:
-            acc += v; acum.append(acc)
-        if any(v > 0 for v in acum):
+            acc+=v; acum.append(acc)
+        if any(v>0 for v in acum):
             fig.add_trace(go.Scatter(
-                x=meses, y=acum, mode="lines+markers", name=u["nome"],
-                line=dict(color=cores[i%len(cores)], width=2),
+                x=meses,y=acum,mode="lines+markers",name=u["nome"],
+                line=dict(color=cores[i%len(cores)],width=2),
                 marker=dict(size=5)))
     fig.update_layout(
-        xaxis=dict(showgrid=True, gridcolor="#F0F4F8"),
-        yaxis=dict(tickprefix="R$ ", tickformat=",.0f",
-                   showgrid=True, gridcolor="#F0F4F8"),
-        legend=dict(orientation="h", y=1.05, x=0.5, xanchor="center"),
-        margin=dict(l=60,r=20,t=40,b=30), height=300,
-        paper_bgcolor="white", plot_bgcolor="white",
-        hovermode="x unified", font=dict(family="Inter"),
+        xaxis=dict(showgrid=True,gridcolor="#F0F4F8"),
+        yaxis=dict(tickprefix="R$ ",tickformat=",.0f",
+                   showgrid=True,gridcolor="#F0F4F8"),
+        legend=dict(orientation="h",y=1.05,x=0.5,xanchor="center"),
+        margin=dict(l=60,r=20,t=40,b=30),height=300,
+        paper_bgcolor="white",plot_bgcolor="white",
+        hovermode="x unified",font=dict(family="Inter"),
     )
     st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown('<span class="st">Evolução Real Acumulado por Unidade</span>',
                 unsafe_allow_html=True)
-    st.plotly_chart(fig, use_container_width=True,
+    st.plotly_chart(fig,use_container_width=True,
                     config={"displayModeBar":False})
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -246,7 +364,7 @@ elif pagina == "🏭 Minha Unidade":
     render(user, NAVY=NAVY, RED=RED, GREEN=GREEN,
            AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
 
-elif pagina == "➕ Projetos":
+elif pagina == "➕ Novo Projeto":
     from pages.novo_projeto import render
     render(user, NAVY=NAVY, RED=RED, GREEN=GREEN,
            AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
