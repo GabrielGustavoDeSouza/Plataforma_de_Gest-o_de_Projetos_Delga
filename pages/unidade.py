@@ -7,6 +7,20 @@ from database import (listar_unidades, kpis_unidade, alertas_pendentes,
                       get_todas_metas, TIPOS_PROJETO, VA_GGF_OPTS,
                       STATUS_OPTS, MESES_PT)
 
+
+def clean_html(html: str) -> str:
+    """Remove indentação e quebras de linha 'soltas' de blocos HTML para
+    evitar que o parser Markdown do Streamlit escape as tags <div> quando
+    a linha começa com 4+ espaços (regra do CommonMark)."""
+    lines = [line.strip() for line in html.strip().split("\n")]
+    return "".join(lines)
+
+
+def html_card(html: str):
+    """Wrapper único para renderizar HTML sem risco do bug de indentação."""
+    st.markdown(clean_html(html), unsafe_allow_html=True)
+
+
 def fmt_mi(v):
     if abs(v)>=1e6: return f"R$ {v/1e6:.2f} Mi"
     if abs(v)>=1e3: return f"R$ {v/1e3:.1f} k"
@@ -69,7 +83,7 @@ def render(user, **colors):
     pct_c= GREEN if pct>=60 else (AMBER if pct>=30 else RED)
 
     # KPI Cards
-    st.markdown(f"""
+    html_card(f"""
     <div class="kpi-grid">
       <div class="kpi-card">
         <div class="kpi-l">Meta {ano_sel}</div>
@@ -102,7 +116,7 @@ def render(user, **colors):
         <div class="kpi-v">{kpi['n_projetos']}</div>
       </div>
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
     alerts=alertas_pendentes(sel)
     if alerts:
@@ -138,21 +152,20 @@ def render(user, **colors):
         margin=dict(l=60,r=20,t=40,b=30),height=300,
         paper_bgcolor="white",plot_bgcolor="white",
         hovermode="x unified",font=dict(family="Inter"))
-    st.markdown(f'<p style="font-size:11px;font-weight:700;color:{NAVY};'
-                f'text-transform:uppercase;letter-spacing:.7px;'
-                f'border-bottom:2px solid #C8202E;padding-bottom:6px;'
-                f'margin-bottom:14px;display:inline-block;">'
-                f'Evolução Mensal — {sel} {ano_sel}</p>',
-                unsafe_allow_html=True)
+    html_card(f'<p style="font-size:11px;font-weight:700;color:{NAVY};'
+              f'text-transform:uppercase;letter-spacing:.7px;'
+              f'border-bottom:2px solid #C8202E;padding-bottom:6px;'
+              f'margin-bottom:14px;display:inline-block;">'
+              f'Evolução Mensal — {sel} {ano_sel}</p>')
     st.plotly_chart(fig,use_container_width=True,
                     config={"displayModeBar":False})
 
     # ── Lista de Projetos ─────────────────────────────────────────────────────
-    st.markdown(f'<p style="font-size:11px;font-weight:700;color:{NAVY};'
-                f'text-transform:uppercase;letter-spacing:.7px;'
-                f'border-bottom:2px solid #C8202E;padding-bottom:6px;'
-                f'margin:20px 0 14px;display:inline-block;">'
-                f'Projetos da Unidade</p>', unsafe_allow_html=True)
+    html_card(f'<p style="font-size:11px;font-weight:700;color:{NAVY};'
+              f'text-transform:uppercase;letter-spacing:.7px;'
+              f'border-bottom:2px solid #C8202E;padding-bottom:6px;'
+              f'margin:20px 0 14px;display:inline-block;">'
+              f'Projetos da Unidade</p>')
 
     projetos=listar_projetos(sel)
 
@@ -200,7 +213,7 @@ def render(user, **colors):
         txt_c    = f"color:{RED};" if atrasado else f"color:{NAVY};"
 
         # Card
-        st.markdown(f"""
+        html_card(f"""
 <div style="border-left:4px solid {border_c};background:white;
      border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:2px;
      box-shadow:0 1px 4px rgba(28,43,74,.06);">
@@ -240,7 +253,7 @@ def render(user, **colors):
     </div>
   </div>
   {f'<div style="margin-top:6px;font-size:10px;color:#555;background:#F9F9F9;padding:5px 10px;border-radius:6px;">📌 <b>Atribuição:</b> {p["atividade_atual"]}{(" — "+p["onde_parado"]) if p.get("onde_parado") else ""}</div>' if p.get('atividade_atual') else ''}
-</div>""", unsafe_allow_html=True)
+</div>""")
 
         # Expander edição
         if pode_ed:
@@ -384,7 +397,7 @@ def render(user, **colors):
     if camp:
         with st.expander(f"🏆 {len(camp)} Projeto(s) Campeão(ões)",expanded=False):
             for p in camp:
-                st.markdown(f"""
+                html_card(f"""
 <div style="background:linear-gradient(135deg,#FFD700,#FFA500);
      border-radius:8px;padding:10px 16px;margin-bottom:6px;
      display:flex;align-items:center;gap:10px;">
@@ -395,5 +408,4 @@ def render(user, **colors):
       {p['tipo']} · Campeão desde {str(p.get('campeao_em',''))[:7]} ·
       Saving: R$ {p['saving_validado']:,.0f}</div>
   </div>
-</div>""", unsafe_allow_html=True)
-              
+</div>""")
