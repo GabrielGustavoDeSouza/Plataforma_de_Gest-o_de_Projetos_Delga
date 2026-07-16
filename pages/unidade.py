@@ -200,7 +200,11 @@ def render(user, **colors):
         legend=dict(orientation="h", y=1.05, x=0.5, xanchor="center"),
         margin=dict(l=60,r=20,t=40,b=30), height=320,
         paper_bgcolor="white", plot_bgcolor="white",
-        hovermode="x unified", font=dict(family="Inter"))
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="white", font_size=12),
+        font=dict(family="Inter"))
+    # Ordenar hover do maior para o menor
+    fig.update_traces(hoverlabel=dict(namelength=-1))
 
     html_card(f'<p style="font-size:11px;font-weight:700;color:{NAVY};'
               f'text-transform:uppercase;letter-spacing:.7px;'
@@ -333,9 +337,11 @@ def render(user, **colors):
                         with c2: ck_mem_e=st.checkbox("Memória de Cálculo",value=bool(p.get("check_memoria")),key=f"cm_{p['id']}")
                         with c3: ck_for_e=st.checkbox("Formalizado com Custos",value=bool(p.get("check_formalizado")),key=f"cf_{p['id']}")
                         obs_e=st.text_area("Observações",value=p.get("obs","") or "",height=50,key=f"ob_{p['id']}")
+                        # Cost Control — só admin/cost_control editam
+                        # Facilitador/gestor apenas visualiza
+                        st.markdown("---")
+                        st.markdown("**🔵 Cost Control**")
                         if is_cc:
-                            st.markdown("---")
-                            st.markdown("**🔵 Cost Control**")
                             if links:
                                 for lk in links: st.markdown(f"🔗 [{lk['titulo']}]({lk['url']})")
                             c1,c2=st.columns(2)
@@ -345,7 +351,22 @@ def render(user, **colors):
                             with c2:
                                 prev_c=st.number_input("Valor Calculado Custos (R$)",value=float(p.get("previsto_custos",0)),step=1000.0,format="%.2f",key=f"pc_{p['id']}")
                         else:
-                            val_ok=p.get("validador_ok","Pendente"); saving=p.get("saving_validado",0); prev_c=p.get("previsto_custos",0)
+                            # Leitura apenas
+                            val_ok=p.get("validador_ok","Pendente")
+                            saving=p.get("saving_validado",0)
+                            prev_c=p.get("previsto_custos",0)
+                            vok_color = "#1A7A3A" if val_ok=="OK" else ("#C8202E" if val_ok=="NOK" else "#E8A838")
+                            st.markdown(f"""
+<div style="background:#F4F6FB;border-radius:8px;padding:10px 14px;font-size:11px;">
+  <div style="display:flex;gap:24px;">
+    <div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Validador Custos</span><br>
+      <b style="color:{vok_color};">{val_ok}</b></div>
+    <div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Valor Calculado Custos</span><br>
+      <b>R$ {prev_c:,.0f}</b></div>
+    <div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Saving Validado</span><br>
+      <b style="color:#20C997;">R$ {saving:,.0f}</b></div>
+  </div>
+</div>""", unsafe_allow_html=True)
                         col_s,col_d=st.columns([4,1])
                         with col_s: salvar_e=st.form_submit_button("💾 Salvar",use_container_width=True)
                         with col_d: excluir_e=st.form_submit_button("🗑️",use_container_width=True)
