@@ -8,6 +8,8 @@ DB_PATH = "/tmp/plataforma_delga.db"
 EXTRA_DRE_TIPOS = {"Kaizen - Custo Evitado","Kaizen - Capital de Giro","Meta Executiva"}
 def is_extra_dre(tipo): return tipo in EXTRA_DRE_TIPOS
 
+APP_VERSION = "REV2.1"
+
 @st.cache_resource
 def get_engine():
     """Mantém conexão viva enquanto o servidor estiver rodando."""
@@ -160,6 +162,18 @@ def editar_usuario(user_id, campos):
     sets = ", ".join(f"{k}=?" for k in campos)
     conn.execute(f"UPDATE usuarios SET {sets} WHERE id=?", list(campos.values())+[user_id])
     conn.commit(); conn.close()
+
+def deletar_usuario(user_id):
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM usuarios WHERE id=?", (user_id,))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
 
 def alterar_senha(user_id, nova):
     conn = get_conn()
