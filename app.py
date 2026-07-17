@@ -19,6 +19,18 @@ html,body,[class*="css"]{{font-family:'Inter',sans-serif;}}
 .block-container{{padding-top:0!important;padding-bottom:2rem;max-width:1400px;}}
 #MainMenu{{visibility:hidden;}}footer{{visibility:hidden;}}
 header[data-testid="stHeader"]{{display:none;}}
+/* Sidebar sempre fixa e visível — impede que fique escondida/minimizada */
+section[data-testid="stSidebar"]{{
+  min-width:280px!important;width:280px!important;
+  transform:none!important;visibility:visible!important;
+}}
+section[data-testid="stSidebar"][aria-expanded="false"]{{
+  min-width:280px!important;width:280px!important;margin-left:0!important;
+}}
+button[data-testid="stSidebarCollapseButton"],
+button[data-testid="stSidebarCollapsedControl"],
+div[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapseButton"]{{display:none!important;}}
 .plat-header{{background:linear-gradient(135deg,{NAVY} 0%,#243B55 100%);
   padding:16px 28px;border-radius:0 0 14px 14px;display:flex;align-items:center;
   gap:16px;margin-bottom:20px;box-shadow:0 2px 12px rgba(28,43,74,.18);}}
