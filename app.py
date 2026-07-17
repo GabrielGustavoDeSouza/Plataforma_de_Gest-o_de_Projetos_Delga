@@ -6,7 +6,7 @@ from database import (listar_unidades, listar_projetos, get_lancamentos,
                       kpis_unidade, get_todas_metas, get_links, init_db,
                       is_extra_dre, get_curva_unidade, get_curva_saving,
                       normalizar_url, fmt_brl as _fmt_brl, fmt_card as _fmt_card,
-                      PERFIS_LBL)
+                      APP_VERSION, PERFIS_LBL)
 from auth import login_page, sidebar_user, require_login
 
 st.set_page_config(page_title="Plataforma Delga", page_icon="🏭",
@@ -36,7 +36,8 @@ div[data-testid="collapsedControl"],
 [data-testid="stSidebarCollapseButton"]{{display:none!important;}}
 .plat-header{{background:linear-gradient(135deg,{NAVY} 0%,#243B55 100%);
   padding:16px 28px;border-radius:0 0 14px 14px;display:flex;align-items:center;
-  gap:16px;margin-bottom:20px;box-shadow:0 2px 12px rgba(28,43,74,.18);}}
+  gap:16px;margin-bottom:20px;box-shadow:0 2px 12px rgba(28,43,74,.18);
+  position:relative;}}
 .plat-logo{{width:44px;height:44px;background:{RED};border-radius:10px;
   display:flex;align-items:center;justify-content:center;
   font-size:18px;font-weight:800;color:white;flex-shrink:0;}}
@@ -89,6 +90,8 @@ st.markdown(f"""
     <div class="plat-sub">Grupo Delga · Redução de Custos {ano_atual}</div>
   </div>
   <div class="plat-badge">📅 {datetime.now().strftime('%d/%m/%Y')}</div>
+  <div style="position:absolute;top:5px;right:14px;font-size:8px;
+       color:rgba(255,255,255,.28);letter-spacing:.4px;">{APP_VERSION}</div>
 </div>
 """, unsafe_allow_html=True)
 
