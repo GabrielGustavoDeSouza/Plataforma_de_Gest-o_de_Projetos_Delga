@@ -92,6 +92,35 @@ def init_db():
 
 def hash_senha(s): return hashlib.sha256(s.encode()).hexdigest()
 
+def normalizar_url(url):
+    """Garante que o link tenha esquema (https://), senão o navegador
+    interpreta como caminho relativo e abre a própria página do app."""
+    url = (url or "").strip()
+    if not url: return url
+    if not url.lower().startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
+
+def fmt_brl(v, decimais=2):
+    """Formato brasileiro: R$ 0.000.000,00"""
+    if v is None: return "—"
+    try: v = float(v)
+    except (TypeError, ValueError): return "—"
+    s = f"{v:,.{decimais}f}"
+    s = s.replace(",", "§").replace(".", ",").replace("§", ".")
+    return f"R$ {s}"
+
+def fmt_card(v):
+    """Formato compacto brasileiro: R$ 0,00M / R$ 0,0k / R$ 0"""
+    if v is None: return "—"
+    try: v = float(v)
+    except (TypeError, ValueError): return "—"
+    if abs(v) >= 1_000_000:
+        return fmt_brl(v/1_000_000, 2) + "M"
+    if abs(v) >= 1_000:
+        return fmt_brl(v/1_000, 1) + "k"
+    return fmt_brl(v, 0)
+
 TIPOS_PROJETO = ["BSW","Kaizen","Kaizen - Ganho Recorrente","Kaizen - Custo Evitado",
     "Kaizen - Capital de Giro","Redução de Custo","Você Resolve",
     "Meta Executiva","Estratégia Comercial"]
@@ -206,7 +235,7 @@ def criar_projeto(unidade_nome, dados, user_id):
     pid = cursor.lastrowid; conn.commit(); conn.close(); return pid
 
 def atualizar_projeto(proj_id, campos, user_id):
-    campos["ultima_atualizacao"] = datetime.now().isoformat()
+    campos["ultima_atualizacao"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     campos["atualizado_por"] = user_id
     conn = get_conn()
     sets = ", ".join(f"{k}=?" for k in campos)
@@ -242,7 +271,8 @@ def get_links(proj_id):
 
 def add_link(proj_id, titulo, url):
     conn = get_conn()
-    conn.execute("INSERT INTO projeto_links (projeto_id,titulo,url) VALUES (?,?,?)",(proj_id,titulo,url))
+    conn.execute("INSERT INTO projeto_links (projeto_id,titulo,url) VALUES (?,?,?)",
+                 (proj_id, titulo, normalizar_url(url)))
     conn.commit(); conn.close()
 
 def del_link(link_id):
@@ -302,6 +332,23 @@ def get_curva_custos(proj_id):
         curva[(ano,mes)] = mensal
     return curva
 
+def get_curva_saving(proj_id):
+    """Curva mensal do saving validado — mesma regra do previsto:
+    rateia em 12 meses a partir do mês de primeiro retorno."""
+    p = get_projeto(proj_id)
+    if not p or not p.get("mes_primeiro_retorno"): return {}
+    valor = p.get("saving_validado", 0)
+    if not valor or valor <= 0: return {}
+    mensal = valor/12
+    try: mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m")
+    except: return {}
+    curva = {}
+    for i in range(12):
+        mes = (mpr.month-1+i)%12+1
+        ano = mpr.year+(mpr.month-1+i)//12
+        curva[(ano,mes)] = mensal
+    return curva
+
 def get_previsto_curva(proj_id):
     """Usa custos se disponível, senão unidade."""
     p = get_projeto(proj_id)
@@ -309,19 +356,61 @@ def get_previsto_curva(proj_id):
     if p["previsto_custos"]>0: return get_curva_custos(proj_id)
     return get_curva_unidade(proj_id)
 
-def alertas_pendentes(unidade_nome=None):
+def alertas_validacao(unidade_nome=None):
+    """Projetos com checklist completo aguardando validação de Custos."""
+    projetos = listar_projetos(unidade_nome)
+    return [p for p in projetos
+            if p["check_a3"] and p["check_memoria"] and p["check_formalizado"]
+            and p.get("validador_ok","Pendente") == "Pendente"]
+
+def alertas_lancamento(unidade_nome=None):
+    """Meses já vencidos sem lançamento de real — apenas projetos já
+    aprovados por Custos (validador_ok='OK'), pois só esses têm curva
+    de acompanhamento de real ativa."""
     projetos = listar_projetos(unidade_nome)
     hoje = date.today(); alertas = []
     for p in projetos:
         if is_extra_dre(p["tipo"]): continue
+        if p.get("validador_ok") != "OK": continue
         if not p.get("mes_primeiro_retorno"): continue
         curva = get_curva_unidade(p["id"])
         lancs = {(l["ano"],l["mes"]) for l in get_lancamentos(proj_id=p["id"])}
-        for (ano,mes) in curva:
-            if date(ano,mes,1)<date(hoje.year,hoje.month,1) and (ano,mes) not in lancs:
+        for (ano,mes),valor in curva.items():
+            if date(ano,mes,1) < date(hoje.year,hoje.month,1) and (ano,mes) not in lancs:
                 alertas.append({"projeto":p["nome"],"unidade":p["unidade_nome"],
-                                "ano":ano,"mes":mes,"proj_id":p["id"]})
+                                "ano":ano,"mes":mes,"proj_id":p["id"],"valor_previsto":valor})
     return alertas
+
+def get_ultima_obs_custos(proj_id):
+    """Retorna a observação de Custos mais recente para o projeto —
+    seja da última decisão de validação/reprovação, seja do último
+    lançamento de real, o que tiver ocorrido por último."""
+    p = get_projeto(proj_id)
+    if not p: return None
+    candidatos = []
+    obs_txt = str(p.get("obs") or "")
+    linhas_validacao = [l for l in obs_txt.split("\n")
+                         if l.strip().startswith(("[Custos]","[Reprovado]"))]
+    if linhas_validacao:
+        candidatos.append({"texto": linhas_validacao[-1].strip(),
+                            "data": p.get("ultima_atualizacao") or ""})
+    lancs = get_lancamentos(proj_id=proj_id)
+    lancs_com_obs = [l for l in lancs if (l.get("observacao") or "").strip()]
+    if lancs_com_obs:
+        ultimo = max(lancs_com_obs, key=lambda l: (l["ano"], l["mes"], l.get("lancado_em") or ""))
+        mes_lbl = MESES_PT[ultimo["mes"]-1]
+        candidatos.append({
+            "texto": f"[Real {mes_lbl}/{ultimo['ano']}] {ultimo['observacao'].strip()}",
+            "data": ultimo.get("lancado_em") or ""})
+    if not candidatos: return None
+    return max(candidatos, key=lambda c: c["data"])
+
+def resetar_projetos_teste():
+    """Apaga todos os projetos (e em cascata links e lançamentos),
+    mantendo usuários, unidades e metas intactos."""
+    conn = get_conn()
+    conn.execute("DELETE FROM projetos")
+    conn.commit(); conn.close()
 
 def kpis_unidade(unidade_nome, ano):
     get_engine()
@@ -353,8 +442,8 @@ def kpis_unidade(unidade_nome, ano):
                 prev_uni_mes[mes]  += vu
                 prev_cust_mes[mes] += vc
                 total_prev_uni     += vu
-            if any((ano,m) in curva_uni for m in range(1,13)):
-                total_validado += p["saving_validado"]
+            curva_sav = get_curva_saving(p["id"])
+            total_validado += sum(v for (y,m),v in curva_sav.items() if y==ano)
 
     for l in get_lancamentos(unidade_nome=unidade_nome, ano=ano):
         p_tipo = next((p["tipo"] for p in projetos if p["id"]==l["projeto_id"]),"")
