@@ -1,9 +1,12 @@
 import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime, date
+import html as _html
 from database import (listar_unidades, listar_projetos, get_lancamentos,
                       kpis_unidade, get_todas_metas, get_links, init_db,
-                      is_extra_dre, get_curva_unidade, PERFIS_LBL)
+                      is_extra_dre, get_curva_unidade, get_curva_saving,
+                      normalizar_url, fmt_brl as _fmt_brl, fmt_card as _fmt_card,
+                      PERFIS_LBL)
 from auth import login_page, sidebar_user, require_login
 
 st.set_page_config(page_title="Plataforma Delga", page_icon="🏭",
@@ -110,21 +113,11 @@ with st.sidebar:
     pagina = st.radio("", opcoes, label_visibility="collapsed")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def fmt_card(v):
-    """M para milhão, k para milhar — padrão brasileiro."""
-    if v is None: return "—"
-    v = float(v)
-    if abs(v) >= 1_000_000:
-        s = f"{v/1_000_000:.2f}".replace(".",",")
-        return f"R$ {s}M"
-    if abs(v) >= 1_000:
-        s = f"{v/1_000:.1f}".replace(".",",")
-        return f"R$ {s}k"
-    return f"R$ {v:.0f}"
+def fmt_card(v): return _fmt_card(v)
 
 def fmt_brl(v):
     if not v and v != 0: return "—"
-    return f"R$ {float(v):,.0f}".replace(",","X").replace(".",",").replace("X",".")
+    return _fmt_brl(v, 0)
 
 def clean_html(html):
     return "".join(l.strip() for l in html.strip().split("\n"))
@@ -165,8 +158,8 @@ if pagina == "🏠 Dashboard Global":
             # DRE: soma frações do ano
             prev_ano = sum(v for (y,m),v in curva.items() if y==ano_atual)
             total_prev_uni += prev_ano
-            if any(y==ano_atual for (y,m) in curva):
-                total_validado += p["saving_validado"]
+            curva_sav = get_curva_saving(p["id"])
+            total_validado += sum(v for (y,m),v in curva_sav.items() if y==ano_atual)
 
     # Real: lançamentos DRE do ano
     for l in get_lancamentos(ano=ano_atual):
@@ -293,10 +286,11 @@ if pagina == "🏠 Dashboard Global":
         chk=("✅" if p["check_a3"] else "⬜")+("✅" if p["check_memoria"] else "⬜")+("✅" if p["check_formalizado"] else "⬜")
         links=get_links(p["id"])
         link_html=" ".join(
-            f'<a href="{lk["url"]}" target="_blank" rel="noopener noreferrer" '
-            f'style="display:inline-block;background:#EEF0F3;color:{NAVY};font-size:10px;'
-            f'padding:2px 8px;border-radius:8px;text-decoration:none;margin-right:4px;">'
-            f'🔗 {lk["titulo"]}</a>'
+            f'<a href="{_html.escape(normalizar_url(lk["url"]), quote=True)}" target="_blank" '
+            f'rel="noopener noreferrer" style="display:inline-block;background:#EEF0F3;'
+            f'color:{NAVY};font-size:10px;padding:2px 8px;border-radius:8px;'
+            f'text-decoration:none;margin-right:4px;">'
+            f'🔗 {_html.escape(lk["titulo"])}</a>'
             for lk in links) if links else ""
         prev_val=p["previsto_unidade"]
         dre_b=(f'<span style="background:#F3E8FF;color:#9B59B6;font-size:9px;'
