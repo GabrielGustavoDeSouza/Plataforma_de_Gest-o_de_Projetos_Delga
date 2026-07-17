@@ -35,32 +35,37 @@ def render(user, **colors):
         st.warning(f"⛔ Você só pode criar projetos em **{user.get('unidade','')}**.")
         return
 
+    # ── Identificação (fora do form para a nota DRE reagir na hora) ────────────
+    st.markdown("#### Identificação")
+    c1,c2,c3 = st.columns(3)
+    with c1: tipo = st.selectbox("Tipo *", TIPOS_PROJETO, key="np_tipo")
+    with c2: va   = st.selectbox("VA / GGF / Material Auxiliar *", VA_GGF_OPTS, key="np_va")
+    with c3: resp = st.text_input("Responsável", key="np_resp")
+
+    # Badge DRE / N/DRE dinâmico — atualiza a cada troca de Tipo
+    is_extra = tipo in EXTRA_DRE_TIPOS
+    if is_extra:
+        st.markdown(
+            f'<div style="background:#F3E8FF;border-left:3px solid #9B59B6;'
+            f'border-radius:0 6px 6px 0;padding:10px 14px;font-size:11px;color:#6C3483;">'
+            f'<b>↷ Extra DRE</b> — <b>{tipo}</b> gera valor operacional mas <b>não impacta o DRE</b>. '
+            f'Custos valida o valor, mas não há lançamento de real mensal para este projeto. '
+            f'O valor acumula mês a mês no indicador <b>Extra DRE</b> do dashboard.<br>'
+            f'<span style="color:#555;">São Extra DRE: Kaizen - Custo Evitado, '
+            f'Kaizen - Capital de Giro e Meta Executiva.</span></div>',
+            unsafe_allow_html=True)
+    else:
+        st.markdown(
+            f'<div style="background:#E6F4EC;border-left:3px solid {GREEN};'
+            f'border-radius:0 6px 6px 0;padding:10px 14px;font-size:11px;color:#1A5C2E;">'
+            f'<b>✓ Dentro do DRE</b> — <b>{tipo}</b> impacta diretamente o DRE. '
+            f'Após aprovação de Custos, o valor é distribuído em 12 meses a partir do '
+            f'"Ganho a partir de" e passa a ter acompanhamento de real mensal.<br>'
+            f'<span style="color:#555;">São DRE: BSW, Kaizen, Kaizen - Ganho Recorrente, '
+            f'Redução de Custo, Você Resolve e Estratégia Comercial.</span></div>',
+            unsafe_allow_html=True)
+
     with st.form("form_novo", clear_on_submit=True):
-
-        # ── Identificação ─────────────────────────────────────────────────────
-        st.markdown("#### Identificação")
-        c1,c2,c3 = st.columns(3)
-        with c1: tipo = st.selectbox("Tipo *", TIPOS_PROJETO)
-        with c2: va   = st.selectbox("VA / GGF / Material Auxiliar *", VA_GGF_OPTS)
-        with c3: resp = st.text_input("Responsável")
-
-        # Badge DRE / N/DRE dinâmico
-        is_extra = tipo in EXTRA_DRE_TIPOS
-        if is_extra:
-            st.markdown(
-                f'<div style="background:#F3E8FF;border-left:3px solid #9B59B6;'
-                f'border-radius:0 6px 6px 0;padding:8px 14px;font-size:11px;color:#6C3483;">'
-                f'<b>↷ Não DRE</b> — Este tipo gera valor operacional mas <b>não impacta o DRE</b>. '
-                f'O Custos irá validar mas não haverá lançamento de real mensal. '
-                f'O valor será contabilizado no indicador <b>Extra DRE</b>.</div>',
-                unsafe_allow_html=True)
-        else:
-            st.markdown(
-                f'<div style="background:#E6F4EC;border-left:3px solid {GREEN};'
-                f'border-radius:0 6px 6px 0;padding:8px 14px;font-size:11px;color:#1A5C2E;">'
-                f'<b>✓ DRE</b> — Este projeto impacta diretamente o DRE. '
-                f'Após aprovação de Custos, haverá acompanhamento de real mensal.</div>',
-                unsafe_allow_html=True)
 
         nome = st.text_input("Nome do Projeto *")
         desc = st.text_area("Descrição / Objetivo", height=70)
@@ -68,8 +73,8 @@ def render(user, **colors):
         # ── Datas e Valores ───────────────────────────────────────────────────
         st.markdown("#### Datas e Valores")
         c1,c2,c3 = st.columns(3)
-        with c1: inicio  = st.date_input("Data de Início")
-        with c2: termino = st.date_input("Data de Fim")
+        with c1: inicio  = st.date_input("Data de Início do Projeto")
+        with c2: termino = st.date_input("Data de Fim do Projeto")
         with c3: mpr     = st.date_input(
             "Ganho a partir de... *",
             help="Mês em que o projeto começa a gerar ganho financeiro. "
