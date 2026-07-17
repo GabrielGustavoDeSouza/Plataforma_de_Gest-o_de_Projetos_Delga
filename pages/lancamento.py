@@ -1,17 +1,15 @@
 import streamlit as st
 from datetime import datetime, date
+import html as _html
 from database import (listar_unidades, listar_projetos, lancar_real,
                       get_lancamentos, get_curva_unidade, get_curva_custos,
-                      get_links, atualizar_projeto, is_extra_dre, MESES_PT)
+                      get_links, atualizar_projeto, is_extra_dre,
+                      normalizar_url, fmt_brl, MESES_PT)
 
 def clean_html(html):
     return "".join(l.strip() for l in html.strip().split("\n"))
 
 def hc(html): st.markdown(clean_html(html), unsafe_allow_html=True)
-
-def fmt_brl(v):
-    if not v and v != 0: return "—"
-    return f"R$ {float(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
 
 def render(user, **colors):
     NAVY=colors.get("NAVY","#1C2B4A"); GREEN=colors.get("GREEN","#1A7A3A")
@@ -68,12 +66,13 @@ def render(user, **colors):
                     # Links como botões HTML clicáveis com href real
                     if links:
                         link_items = "".join(
-                            f'<a href="{lk["url"]}" target="_blank" rel="noopener noreferrer" '
+                            f'<a href="{_html.escape(normalizar_url(lk["url"]), quote=True)}" '
+                            f'target="_blank" rel="noopener noreferrer" '
                             f'style="display:inline-flex;align-items:center;gap:4px;'
                             f'background:{NAVY};color:white;font-size:11px;font-weight:600;'
                             f'padding:5px 12px;border-radius:6px;text-decoration:none;'
                             f'margin-right:6px;margin-top:4px;">'
-                            f'🔗 {lk["titulo"]}</a>'
+                            f'🔗 {_html.escape(lk["titulo"])}</a>'
                             for lk in links)
                         links_html = f'<div style="margin-top:8px;">{link_items}</div>'
                     else:
@@ -91,7 +90,7 @@ def render(user, **colors):
     </div>
     <div style="text-align:right;flex-shrink:0;margin-left:20px;">
       <div style="font-size:9px;color:{SILVER};text-transform:uppercase;letter-spacing:.4px;">Previsto Unidade</div>
-      <div style="font-size:18px;font-weight:700;color:{AMBER};">R$ {p['previsto_unidade']:,.0f}</div>
+      <div style="font-size:18px;font-weight:700;color:{AMBER};">{fmt_brl(p['previsto_unidade'])}</div>
     </div>
   </div>
 </div>""")
@@ -161,18 +160,18 @@ def render(user, **colors):
                     and not is_extra_dre(p["tipo"])
                     and p["unidade_nome"] in unis_real]
 
-        # Filtra os que têm fração prevista neste mês
+        # Filtra apenas projetos que têm fração prevista NESTE mês exato
+        # (a curva só existe a partir do mês de primeiro retorno definido
+        # pela unidade — Custos nunca lança antes disso).
         proj_mes = []
         for p in todos_ap:
-            curva = get_curva_unidade(p["id"])  # usa previsto_unidade para referência
-            frac  = curva.get((ano_sel, mes_sel), 0)
-            if curva and any(y==ano_sel for (y,m) in curva):
-                # Inclui se tem frações no ANO (não só no mês exato)
-                proj_mes.append((p, frac))
+            curva = get_curva_unidade(p["id"])
+            if (ano_sel, mes_sel) in curva:
+                proj_mes.append((p, curva[(ano_sel, mes_sel)]))
 
         if not proj_mes:
-            st.info(f"Nenhum projeto DRE aprovado com retorno em {ano_sel} "
-                    f"nas unidades selecionadas.")
+            st.info(f"Nenhum projeto DRE aprovado com retorno previsto em "
+                    f"{MESES_PT[mes_sel-1]}/{ano_sel} nas unidades selecionadas.")
         else:
             # Busca lançamentos existentes para este mês/ano
             lancs_exist = {}
@@ -188,58 +187,31 @@ def render(user, **colors):
                         f"em {MESES_PT[mes_sel-1]}/{ano_sel}")
             st.markdown("---")
 
-            # ── Formulário único com TODOS os projetos ────────────────────────
-            with st.form("form_real_todos"):
-                valores = {}; obs_map = {}
-                header_html = f"""
-<div style="display:grid;grid-template-columns:3fr 1fr 1fr 2fr;gap:8px;
-     padding:6px 10px;background:{NAVY};border-radius:6px;margin-bottom:4px;">
-  <div style="color:white;font-size:10px;font-weight:600;text-transform:uppercase;">Projeto</div>
-  <div style="color:rgba(255,255,255,.7);font-size:10px;font-weight:600;text-transform:uppercase;text-align:center;">Fração Prev.</div>
-  <div style="color:rgba(255,255,255,.7);font-size:10px;font-weight:600;text-transform:uppercase;text-align:center;">Real (R$)</div>
-  <div style="color:rgba(255,255,255,.7);font-size:10px;font-weight:600;text-transform:uppercase;">Observação</div>
-</div>"""
-                hc(header_html)
-
-                for p, frac in proj_mes:
-                    ant    = lancs_exist.get(p["id"])
-                    val_ant= float(ant["valor_real"]) if ant else 0.0
-                    obs_ant= ant["observacao"] if ant else ""
-                    ja     = p["id"] in lancs_exist
-                    badge  = f'<span style="color:{GREEN};font-size:10px;">✅</span>' if ja else f'<span style="color:{AMBER};font-size:10px;">⏳</span>'
-
-                    hc(f"""
-<div style="padding:6px 10px;background:{'#F9FFF9' if ja else 'white'};
-     border-radius:6px;border:1px solid {'#D4EDDA' if ja else '#EEF0F3'};margin-bottom:4px;">
-  <div style="font-size:11px;font-weight:700;color:{NAVY};">{badge} #{p['id']} — {p['nome'][:45]}</div>
-  <div style="font-size:10px;color:{SILVER};">{p['unidade_nome']} · {p['tipo']}</div>
+            # ── Um formulário independente por projeto ─────────────────────────
+            if not pendentes:
+                st.success(f"✅ Todos os projetos já foram lançados em {MESES_PT[mes_sel-1]}/{ano_sel}.")
+            for p, frac in pendentes:
+                hc(f"""
+<div style="padding:8px 12px;background:white;border-radius:6px 6px 0 0;
+     border:1px solid #EEF0F3;border-bottom:none;">
+  <div style="font-size:11px;font-weight:700;color:{NAVY};">⏳ #{p['id']} — {p['nome'][:55]}</div>
+  <div style="font-size:10px;color:{SILVER};">{p['unidade_nome']} · {p['tipo']} · Fração prevista: <b style="color:{AMBER};">{fmt_brl(frac)}</b></div>
 </div>""")
-
-                    c1,c2,c3 = st.columns([2,2,4])
+                with st.form(f"real_{p['id']}_{ano_sel}_{mes_sel}"):
+                    c1,c2 = st.columns([2,4])
                     with c1:
-                        st.markdown(f"**Fração:** R$ {frac:,.0f}" if frac else "**Sem fração**")
+                        val = st.number_input("Real (R$)", value=0.0, step=100.0,
+                                               format="%.2f", key=f"rv_{p['id']}_{ano_sel}_{mes_sel}")
                     with c2:
-                        valores[p["id"]] = st.number_input(
-                            "Real", value=val_ant, step=100.0, format="%.2f",
-                            key=f"rv_{p['id']}", label_visibility="collapsed")
-                    with c3:
-                        obs_map[p["id"]] = st.text_input(
-                            "Obs", value=obs_ant, key=f"ro_{p['id']}",
-                            label_visibility="collapsed", placeholder="Observação...")
-                    st.markdown("<hr style='margin:4px 0;border-color:#F0F0F0;'>", unsafe_allow_html=True)
-
-                salvar = st.form_submit_button(
-                    f"💾 Salvar todos os lançamentos de {MESES_PT[mes_sel-1]}/{ano_sel}",
-                    use_container_width=True, type="primary")
-
-            if salvar:
-                count = 0
-                for pid, val in valores.items():
-                    if val >= 0:
-                        lancar_real(pid, ano_sel, mes_sel, val, obs_map.get(pid,""), user["id"])
-                        count += 1
-                st.success(f"✅ {count} lançamento(s) salvos para {MESES_PT[mes_sel-1]}/{ano_sel}!")
-                st.rerun()
+                        obs = st.text_input("Observação", key=f"ro_{p['id']}_{ano_sel}_{mes_sel}",
+                                             placeholder="Observação (opcional)...")
+                    salvar_p = st.form_submit_button(
+                        f"💾 Salvar #{p['id']}", use_container_width=True)
+                if salvar_p:
+                    lancar_real(p["id"], ano_sel, mes_sel, val, obs, user["id"])
+                    st.success(f"✅ Lançamento de #{p['id']} salvo para {MESES_PT[mes_sel-1]}/{ano_sel}!")
+                    st.rerun()
+                st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
 
             # ── Seção de revisão / edição ─────────────────────────────────────
             if lancados:
@@ -255,7 +227,7 @@ def render(user, **colors):
 
                     with st.expander(
                         f"✏️ #{p['id']} — {p['nome'][:40]} | "
-                        f"Lançado: R$ {real_v:,.0f} | Fração: R$ {frac:,.0f}",
+                        f"Lançado: {fmt_brl(real_v)} | Fração: {fmt_brl(frac)}",
                         expanded=False):
                         with st.form(f"rev_{p['id']}_{mes_sel}"):
                             c1,c2 = st.columns([2,4])
@@ -268,8 +240,8 @@ def render(user, **colors):
                                     "Observação", value=lc.get("observacao","") or "")
                             hc(f"""
 <div style="display:flex;gap:16px;font-size:11px;padding:6px 0;">
-  <span>Fração prevista: <b>R$ {frac:,.0f}</b></span>
-  <span>Diferença: <b style="color:{diff_c};">{'▲' if diff>=0 else '▼'} R$ {abs(diff):,.0f}</b></span>
+  <span>Fração prevista: <b>{fmt_brl(frac)}</b></span>
+  <span>Diferença: <b style="color:{diff_c};">{'▲' if diff>=0 else '▼'} {fmt_brl(abs(diff))}</b></span>
 </div>""")
                             if st.form_submit_button("💾 Atualizar", use_container_width=True):
                                 lancar_real(p["id"], ano_sel, mes_sel,
