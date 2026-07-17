@@ -2,7 +2,7 @@ import streamlit as st
 from database import (listar_usuarios, criar_usuario, editar_usuario,
                       alterar_senha, listar_unidades, criar_unidade,
                       get_todas_metas, set_meta, resetar_projetos_teste,
-                      listar_projetos, PERFIS_LBL)
+                      listar_projetos, deletar_usuario, PERFIS_LBL)
 
 def render(user, **colors):
     NAVY=colors.get("NAVY","#1C2B4A"); RED=colors.get("RED","#C8202E")
@@ -79,6 +79,27 @@ def render(user, **colors):
                     "unidade":None if nova_unid=="— Acesso Global" else nova_unid,
                     "ativo":int(ativo)})
                 st.success(f"✅ **{novo_nome}** atualizado!"); st.rerun()
+
+        st.markdown("---")
+        st.markdown("**🗑️ Excluir usuário**")
+        admins_ativos = [u for u in usuarios if u["perfil"]=="admin" and u["ativo"]]
+        if u_sel["id"] == user["id"]:
+            st.info("Você não pode excluir seu próprio usuário logado.")
+        elif u_sel["perfil"]=="admin" and u_sel["ativo"] and len(admins_ativos) <= 1:
+            st.info("Esse é o único administrador ativo — não pode ser excluído.")
+        else:
+            conf_del = st.checkbox(
+                f"Confirmo que quero excluir **{u_sel['nome']}** permanentemente.",
+                key=f"confdel_{u_sel['id']}")
+            if st.button("🗑️ Excluir Usuário", disabled=not conf_del,
+                        key=f"btndel_{u_sel['id']}"):
+                if deletar_usuario(u_sel["id"]):
+                    st.success(f"✅ **{u_sel['nome']}** excluído."); st.rerun()
+                else:
+                    st.error(
+                        f"Não foi possível excluir **{u_sel['nome']}**: existem projetos "
+                        f"ou lançamentos no histórico vinculados a ele. Desative-o "
+                        f"(campo Ativo acima) em vez de excluir.")
 
     with tab_metas:
         st.markdown("**Definir Meta Anual por Unidade / Área**")
