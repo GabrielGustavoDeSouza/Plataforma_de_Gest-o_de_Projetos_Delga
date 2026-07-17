@@ -1,16 +1,17 @@
 import streamlit as st
 from database import (listar_usuarios, criar_usuario, editar_usuario,
                       alterar_senha, listar_unidades, criar_unidade,
-                      get_todas_metas, set_meta, PERFIS_LBL)
+                      get_todas_metas, set_meta, resetar_projetos_teste,
+                      listar_projetos, PERFIS_LBL)
 
 def render(user, **colors):
-    NAVY=colors.get("NAVY","#1C2B4A")
+    NAVY=colors.get("NAVY","#1C2B4A"); RED=colors.get("RED","#C8202E")
     if user["perfil"] != "admin":
         st.error("⛔ Acesso restrito a administradores."); return
 
     st.markdown('<span class="st">Administração</span>', unsafe_allow_html=True)
-    tab_users, tab_editar, tab_metas, tab_unid, tab_senha = st.tabs([
-        "👥 Usuários","✏️ Editar Usuário","🎯 Metas","🏭 Unidades","🔑 Senhas"])
+    tab_users, tab_editar, tab_metas, tab_unid, tab_senha, tab_reset = st.tabs([
+        "👥 Usuários","✏️ Editar Usuário","🎯 Metas","🏭 Unidades","🔑 Senhas","🗑️ Reset"])
 
     with tab_users:
         usuarios = listar_usuarios()
@@ -124,3 +125,17 @@ def render(user, **colors):
                 if nova!=conf: st.error("Senhas não conferem.")
                 elif len(nova)<6: st.error("Mínimo 6 caracteres.")
                 else: alterar_senha(u_s["id"],nova); st.success(f"✅ Senha alterada!")
+
+    with tab_reset:
+        n_proj = len(listar_projetos(incluir_campeao=True))
+        st.markdown(f"**🗑️ Resetar Projetos de Teste**")
+        st.warning(
+            f"Isso apaga **todos os {n_proj} projeto(s)** cadastrados — junto com seus "
+            f"links e lançamentos de real. **Usuários, unidades e metas são mantidos.**\n\n"
+            f"Use isso para limpar os dados de teste antes de começar a operação real.")
+        confirmar = st.checkbox("Entendo que essa ação é irreversível e quero apagar todos os projetos.")
+        if st.button("🗑️ Apagar todos os projetos", disabled=not confirmar,
+                     use_container_width=True, type="primary"):
+            resetar_projetos_teste()
+            st.success("✅ Todos os projetos, links e lançamentos foram apagados. Usuários, unidades e metas foram mantidos.")
+            st.rerun()
