@@ -8,16 +8,18 @@ from database import (listar_unidades, listar_projetos, get_lancamentos,
                       normalizar_url, fmt_brl as _fmt_brl, fmt_card as _fmt_card,
                       APP_VERSION, PERFIS_LBL)
 from auth import login_page, sidebar_user, require_login
+from assets import LOGO_DATA_URI
 
 st.set_page_config(page_title="Plataforma Delga", page_icon="🏭",
                    layout="wide", initial_sidebar_state="expanded")
 
-NAVY="#1C2B4A"; RED="#C8202E"; GREEN="#1A7A3A"
-AMBER="#E8A838"; TEAL="#20C997"; SILVER="#8A9BB0"; LIGHT="#F4F6FB"
+# ── Paleta Grupo Delga ───────────────────────────────────────────────────────
+NAVY="#0B0F2B"; BLUE="#1428FF"; BLUE2="#3D5CFF"; GREEN="#1AA260"
+AMBER="#E8A838"; RED="#D93B3B"; TEAL="#20C997"; SILVER="#8A9BB0"; LIGHT="#F4F6FB"
 
 st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 html,body,[class*="css"]{{font-family:'Inter',sans-serif;}}
 .block-container{{padding-top:0!important;padding-bottom:2rem;max-width:1400px;}}
 #MainMenu{{visibility:hidden;}}footer{{visibility:hidden;}}
@@ -34,22 +36,24 @@ button[data-testid="stSidebarCollapseButton"],
 button[data-testid="stSidebarCollapsedControl"],
 div[data-testid="collapsedControl"],
 [data-testid="stSidebarCollapseButton"]{{display:none!important;}}
-.plat-header{{background:linear-gradient(135deg,{NAVY} 0%,#243B55 100%);
-  padding:16px 28px;border-radius:0 0 14px 14px;display:flex;align-items:center;
-  gap:16px;margin-bottom:20px;box-shadow:0 2px 12px rgba(28,43,74,.18);
-  position:relative;}}
-.plat-logo{{width:44px;height:44px;background:{RED};border-radius:10px;
-  display:flex;align-items:center;justify-content:center;
-  font-size:18px;font-weight:800;color:white;flex-shrink:0;}}
-.plat-title{{color:white;font-size:18px;font-weight:700;margin:0;}}
-.plat-sub{{color:rgba(255,255,255,.5);font-size:11px;margin:2px 0 0;}}
-.plat-badge{{margin-left:auto;background:rgba(255,255,255,.12);color:rgba(255,255,255,.8);
+.plat-header{{background:linear-gradient(120deg,{NAVY} 0%,#151B45 55%,#1B1F5C 100%);
+  padding:18px 30px;border-radius:0 0 16px 16px;display:flex;align-items:center;
+  gap:18px;margin-bottom:20px;box-shadow:0 4px 20px rgba(11,15,43,.25);
+  position:relative;overflow:hidden;}}
+.plat-header::after{{content:"";position:absolute;top:-60%;right:-6%;width:260px;height:260px;
+  background:radial-gradient(circle,{BLUE}55 0%,transparent 70%);pointer-events:none;}}
+.plat-logo-box{{background:white;border-radius:10px;padding:7px 12px;
+  display:flex;align-items:center;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.12);}}
+.plat-logo-box img{{height:26px;display:block;}}
+.plat-title{{color:white;font-size:18px;font-weight:700;margin:0;letter-spacing:.2px;}}
+.plat-sub{{color:rgba(255,255,255,.55);font-size:11px;margin:2px 0 0;}}
+.plat-badge{{margin-left:auto;background:rgba(255,255,255,.10);color:rgba(255,255,255,.85);
   font-size:11px;font-weight:600;padding:5px 14px;border-radius:20px;
-  white-space:nowrap;border:1px solid rgba(255,255,255,.18);}}
+  white-space:nowrap;border:1px solid rgba(255,255,255,.16);position:relative;z-index:1;}}
 .kpi-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin-bottom:16px;}}
 .kpi-card{{background:white;border-radius:12px;padding:16px 18px;
-  border-left:4px solid {NAVY};
-  box-shadow:0 1px 4px rgba(28,43,74,.06),0 4px 16px rgba(28,43,74,.04);}}
+  border-left:4px solid {BLUE};
+  box-shadow:0 1px 4px rgba(11,15,43,.06),0 4px 16px rgba(11,15,43,.04);}}
 .kpi-card.green{{border-left-color:{GREEN};}}
 .kpi-card.amber{{border-left-color:{AMBER};}}
 .kpi-card.red{{border-left-color:{RED};}}
@@ -58,10 +62,10 @@ div[data-testid="collapsedControl"],
 .kpi-v{{font-size:20px;font-weight:700;color:{NAVY};line-height:1.1;}}
 .kpi-d{{font-size:10px;color:{SILVER};margin-top:3px;}}
 .sc{{background:white;border-radius:12px;padding:20px 22px;
-  box-shadow:0 1px 4px rgba(28,43,74,.06),0 4px 16px rgba(28,43,74,.04);
+  box-shadow:0 1px 4px rgba(11,15,43,.06),0 4px 16px rgba(11,15,43,.04);
   margin-bottom:16px;}}
 .st{{font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;
-  letter-spacing:.7px;border-bottom:2px solid {RED};
+  letter-spacing:.7px;border-bottom:2px solid {BLUE};
   padding-bottom:6px;margin-bottom:14px;display:inline-block;}}
 .dt{{width:100%;border-collapse:collapse;font-size:12px;}}
 .dt thead th{{background:{NAVY};color:white;padding:9px 12px;
@@ -84,14 +88,14 @@ ano_atual= datetime.now().year
 
 st.markdown(f"""
 <div class="plat-header">
-  <div class="plat-logo">GD</div>
+  <div class="plat-logo-box"><img src="{LOGO_DATA_URI}"></div>
   <div>
     <div class="plat-title">Plataforma de Gestão de Projetos</div>
     <div class="plat-sub">Grupo Delga · Redução de Custos {ano_atual}</div>
   </div>
   <div class="plat-badge">📅 {datetime.now().strftime('%d/%m/%Y')}</div>
   <div style="position:absolute;top:5px;right:14px;font-size:8px;
-       color:rgba(255,255,255,.28);letter-spacing:.4px;">{APP_VERSION}</div>
+       color:rgba(255,255,255,.28);letter-spacing:.4px;z-index:1;">{APP_VERSION}</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -342,20 +346,20 @@ if pagina == "🏠 Dashboard Global":
 
 elif pagina == "🏭 Minha Unidade":
     from pages.unidade import render
-    render(user, NAVY=NAVY, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
 
 elif pagina == "➕ Novo Projeto":
     from pages.novo_projeto import render
-    render(user, NAVY=NAVY, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
 
 elif pagina == "💰 Controle de Custos":
     from pages.lancamento import render
-    render(user, NAVY=NAVY, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
 
 elif pagina == "👤 Minha Conta":
     from pages.minha_conta import render
-    render(user, NAVY=NAVY, RED=RED, GREEN=GREEN, SILVER=SILVER)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, SILVER=SILVER)
 
 elif pagina == "⚙️ Administração":
     from pages.admin import render
-    render(user, NAVY=NAVY, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
