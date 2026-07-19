@@ -14,7 +14,7 @@ st.set_page_config(page_title="Plataforma Delga", page_icon="🏭",
                    layout="wide", initial_sidebar_state="expanded")
 
 # ── Paleta Grupo Delga ───────────────────────────────────────────────────────
-NAVY="#0B0F2B"; BLUE="#1428FF"; BLUE2="#3D5CFF"; GREEN="#1AA260"
+NAVY="#0B0F2B"; BLUE="#1B2A9E"; BLUE2="#33459E"; GREEN="#1AA260"
 AMBER="#E8A838"; RED="#D93B3B"; TEAL="#20C997"; SILVER="#8A9BB0"; LIGHT="#F4F6FB"
 
 st.markdown(f"""
@@ -55,14 +55,18 @@ input[type="radio"],input[type="checkbox"]{{accent-color:{BLUE}!important;}}
 [data-baseweb="checkbox"] svg{{fill:{BLUE}!important;}}
 [data-testid="stRadio"] input[type="radio"]:checked + div,
 [data-testid="stCheckbox"] input[type="checkbox"]:checked + div{{
-  background-color:{BLUE}!important;border-color:{BLUE}!important;}}
+  background-color:{BLUE}!important;border-color:{BLUE}!important;
+  outline-color:{BLUE}!important;box-shadow:none!important;}}
 [data-testid="stRadio"] input[type="radio"]:checked + div > div,
 [data-testid="stCheckbox"] input[type="checkbox"]:checked + div > div{{
   background-color:{BLUE}!important;}}
-label[data-testid="stRadioOption"][data-selected="true"] > div > div > div{{
-  border-color:{BLUE}!important;}}
+label[data-testid="stRadioOption"][data-selected="true"] > div > div > div,
+label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:hover,
+label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:focus{{
+  border-color:{BLUE}!important;background-color:{BLUE}!important;
+  outline-color:{BLUE}!important;box-shadow:none!important;}}
 label[data-testid="stRadioOption"][data-selected="true"] > div > div > div > div{{
-  background-color:{BLUE}!important;}}
+  background-color:{BLUE}!important;border-color:{BLUE}!important;}}
 [data-testid="stSlider"] div[role="slider"]{{background-color:{BLUE}!important;}}
 [data-testid="stSlider"] .stSliderTrackActive{{background-color:{BLUE}!important;}}
 .plat-header{{background:linear-gradient(120deg,{NAVY} 0%,#151B45 55%,#1B1F5C 100%);
