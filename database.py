@@ -483,3 +483,99 @@ def kpis_unidade(unidade_nome, ano):
 
 # Inicializa ao importar
 get_engine()
+
+# ── Funções analíticas — Dashboard estratégico ──────────────────────────────
+
+def funil_conversao(ano, unidade_nome=None):
+    """Funil Meta do Grupo -> Previsto -> Validado por Custos -> Real,
+    para o ano informado. unidade_nome=None agrega o grupo inteiro."""
+    metas = get_todas_metas(ano)
+    meta = sum(m["valor"] for m in metas if (unidade_nome is None or m["nome"]==unidade_nome))
+
+    projetos = listar_projetos(unidade_nome)
+    previsto = validado = 0.0
+    for p in projetos:
+        if is_extra_dre(p["tipo"]): continue
+        curva = get_curva_unidade(p["id"])
+        previsto += sum(v for (y,m),v in curva.items() if y==ano)
+        curva_s = get_curva_saving(p["id"])
+        validado += sum(v for (y,m),v in curva_s.items() if y==ano)
+
+    real = 0.0
+    for l in get_lancamentos(unidade_nome=unidade_nome, ano=ano):
+        if not is_extra_dre(l.get("tipo","")):
+            real += l["valor_real"]
+
+    return {"meta":meta, "previsto":previsto, "validado":validado, "real":real,
+            "pct_meta": (real/meta*100) if meta>0 else 0}
+
+def saving_por_unidade(ano, tipo_unidade=None):
+    """Saving validado por unidade (rateado no ano), opcionalmente filtrado
+    por tipo de unidade ('planta' ou 'area'). Só retorna unidades com valor."""
+    unidades = listar_unidades()
+    if tipo_unidade:
+        unidades = [u for u in unidades if u["tipo"]==tipo_unidade]
+    resultado = []
+    for u in unidades:
+        total = 0.0
+        for p in listar_projetos(u["nome"]):
+            if is_extra_dre(p["tipo"]): continue
+            curva_s = get_curva_saving(p["id"])
+            total += sum(v for (y,m),v in curva_s.items() if y==ano)
+        if total > 0:
+            resultado.append({"unidade":u["nome"], "valor":total})
+    resultado.sort(key=lambda x:-x["valor"])
+    return resultado
+
+def distribuicao_por_tipo(ano, unidade_nome=None):
+    """Previsto/Validado/Real por tipo de projeto, rateados no ano informado."""
+    projetos = listar_projetos(unidade_nome)
+    tipos = {}
+    for p in projetos:
+        t = p["tipo"]
+        d = tipos.setdefault(t, {"previsto":0.0,"validado":0.0,"real":0.0,
+                                  "extra":is_extra_dre(t)})
+        curva = get_curva_unidade(p["id"])
+        d["previsto"] += sum(v for (y,m),v in curva.items() if y==ano)
+        curva_s = get_curva_saving(p["id"])
+        d["validado"] += sum(v for (y,m),v in curva_s.items() if y==ano)
+    for l in get_lancamentos(unidade_nome=unidade_nome, ano=ano):
+        t = l.get("tipo","")
+        if t in tipos:
+            tipos[t]["real"] += l["valor_real"]
+    return tipos
+
+def resumo_por_pilar(unidade_nome=None):
+    """Qtd de projetos, saving previsto/validado totais (não rateados) e
+    real acumulado HISTÓRICO (todos os anos) por tipo de projeto."""
+    projetos = listar_projetos(unidade_nome)
+    pilares = {}
+    for p in projetos:
+        t = p["tipo"]
+        d = pilares.setdefault(t, {"qtd":0,"previsto":0.0,"validado":0.0,
+                                    "real_total":0.0,"extra":is_extra_dre(t)})
+        d["qtd"] += 1
+        d["previsto"] += p["previsto_unidade"] or 0
+        d["validado"] += p["saving_validado"] or 0
+    for l in get_lancamentos(unidade_nome=unidade_nome):
+        t = l.get("tipo","")
+        if t in pilares:
+            pilares[t]["real_total"] += l["valor_real"]
+    return pilares
+
+def get_carry_over(ano_ref, unidade_nome=None):
+    """Meses da curva de projetos DRE que caem FORA do ano de referência —
+    parte do previsto que 'sai' do ano vigente (geralmente por causa de um
+    'Ganho a partir de' fora de janeiro, que joga meses pro ano seguinte)."""
+    projetos = listar_projetos(unidade_nome)
+    fora = []
+    for p in projetos:
+        if is_extra_dre(p["tipo"]): continue
+        curva = get_curva_unidade(p["id"])
+        for (y,m),v in curva.items():
+            if y != ano_ref and v > 0:
+                fora.append({"projeto":p["nome"], "unidade":p["unidade_nome"],
+                            "proj_id":p["id"], "ano":y, "mes":m, "valor":v,
+                            "direcao":"anterior" if y<ano_ref else "seguinte"})
+    fora.sort(key=lambda x:(x["ano"],x["mes"]))
+    return fora
