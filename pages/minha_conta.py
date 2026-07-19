@@ -2,9 +2,9 @@ import streamlit as st
 from database import alterar_senha, listar_usuarios, atualizar_projeto
 
 def render(user, **colors):
-    NAVY=colors.get("NAVY","#1C2B4A")
-    GREEN=colors.get("GREEN","#1A7A3A")
-    RED=colors.get("RED","#C8202E")
+    NAVY=colors.get("NAVY","#0B0F2B")
+    GREEN=colors.get("GREEN","#1AA260")
+    RED=colors.get("RED","#D93B3B")
     SILVER=colors.get("SILVER","#8A9BB0")
 
     st.markdown('<span class="st">Minha Conta</span>', unsafe_allow_html=True)
