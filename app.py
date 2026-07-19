@@ -60,13 +60,19 @@ input[type="radio"],input[type="checkbox"]{{accent-color:{BLUE}!important;}}
 [data-testid="stRadio"] input[type="radio"]:checked + div > div,
 [data-testid="stCheckbox"] input[type="checkbox"]:checked + div > div{{
   background-color:{BLUE}!important;}}
-label[data-testid="stRadioOption"][data-selected="true"] > div > div > div,
-label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:hover,
-label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:focus{{
+label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first-child,
+label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first-child:hover,
+label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first-child:focus{{
   border-color:{BLUE}!important;background-color:{BLUE}!important;
   outline-color:{BLUE}!important;box-shadow:none!important;}}
-label[data-testid="stRadioOption"][data-selected="true"] > div > div > div > div{{
+label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first-child > div{{
   background-color:{BLUE}!important;border-color:{BLUE}!important;}}
+/* Garante que só a bolinha é pintada — a linha/texto do item nunca ganha fundo */
+label[data-testid="stRadioOption"],
+label[data-testid="stRadioOption"] > div,
+label[data-testid="stRadioOption"] > div > div,
+label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"]{{
+  background:transparent!important;box-shadow:none!important;}}
 [data-testid="stSlider"] div[role="slider"]{{background-color:{BLUE}!important;}}
 [data-testid="stSlider"] .stSliderTrackActive{{background-color:{BLUE}!important;}}
 .plat-header{{background:linear-gradient(120deg,{NAVY} 0%,#151B45 55%,#1B1F5C 100%);
