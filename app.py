@@ -309,27 +309,36 @@ if pagina == "🏠 Dashboard Global":
     unidades   = listar_unidades()
     todos_proj = listar_projetos()
 
-    c_tit, c_nav = st.columns([5,1])
+    c_tit, c_uni, c_nav = st.columns([3,2,1])
     with c_tit:
         st.markdown('<span class="st">Visão Estratégica do Grupo</span>', unsafe_allow_html=True)
+    with c_uni:
+        VISAO_GERAL = "— Visão Geral (Grupo) —"
+        uni_opcoes = [VISAO_GERAL] + [u["nome"] for u in unidades]
+        uni_pick = st.selectbox("Unidade:", uni_opcoes, index=0,
+                                 key="dash_uni_filtro", label_visibility="collapsed")
+        unidade_filtro = None if uni_pick == VISAO_GERAL else uni_pick
     with c_nav:
         ano_dash = year_nav("dash_ano")
 
-    render_carry_over(ano_dash)
+    render_carry_over(ano_dash, unidade_filtro)
 
-    funil = funil_conversao(ano_dash)
-    n_proj = len(todos_proj)
+    funil = funil_conversao(ano_dash, unidade_filtro)
+    n_proj = len(todos_proj if not unidade_filtro else
+                 [p for p in todos_proj if p["unidade_nome"]==unidade_filtro])
+
+    titulo_escopo = unidade_filtro if unidade_filtro else "Grupo"
 
     c1, c2 = st.columns([3,2])
     with c1:
         st.markdown('<div class="sc">', unsafe_allow_html=True)
-        st.markdown(f'<span class="st">Funil de Conversão — Portfólio → DRE ({ano_dash})</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="st">Funil de Conversão — Portfólio → DRE ({titulo_escopo}, {ano_dash})</span>', unsafe_allow_html=True)
         st.caption("Quanto do portfólio mapeado converte em resultado no DRE?")
         st.plotly_chart(build_funnel(funil), use_container_width=True, config={"displayModeBar":False})
         st.markdown('</div>', unsafe_allow_html=True)
     with c2:
         st.markdown('<div class="sc">', unsafe_allow_html=True)
-        st.markdown('<span class="st">Atingimento da Meta</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="st">Atingimento da Meta — {titulo_escopo}</span>', unsafe_allow_html=True)
         st.plotly_chart(build_gauge(funil["pct_meta"]), use_container_width=True, config={"displayModeBar":False})
         cg1, cg2 = st.columns(2)
         with cg1:
@@ -353,31 +362,32 @@ if pagina == "🏠 Dashboard Global":
   <span style="color:#9B59B6;">↷ Não DRE:</span> Kaizen Custo Evitado · Kaizen Capital de Giro · Meta Executiva — geram valor operacional mas não reduzem GGF no DRE.
 </div>""")
 
-    d1, d2 = st.columns(2)
-    with d1:
-        st.markdown('<div class="sc">', unsafe_allow_html=True)
-        st.markdown('<span class="st">Representatividade — Plantas</span>', unsafe_allow_html=True)
-        dados_planta = saving_por_unidade(ano_dash, "planta")
-        if dados_planta:
-            st.plotly_chart(build_donut(dados_planta), use_container_width=True, config={"displayModeBar":False})
-        else:
-            st.caption("Sem saving validado em plantas neste ano ainda.")
-        st.markdown('</div>', unsafe_allow_html=True)
-    with d2:
-        st.markdown('<div class="sc">', unsafe_allow_html=True)
-        st.markdown('<span class="st">Representatividade — Áreas Funcionais</span>', unsafe_allow_html=True)
-        dados_area = saving_por_unidade(ano_dash, "area")
-        if dados_area:
-            st.plotly_chart(build_donut(dados_area), use_container_width=True, config={"displayModeBar":False})
-        else:
-            st.caption("Sem saving validado em áreas neste ano ainda.")
-        st.markdown('</div>', unsafe_allow_html=True)
+    if not unidade_filtro:
+        d1, d2 = st.columns(2)
+        with d1:
+            st.markdown('<div class="sc">', unsafe_allow_html=True)
+            st.markdown('<span class="st">Representatividade — Plantas</span>', unsafe_allow_html=True)
+            dados_planta = saving_por_unidade(ano_dash, "planta")
+            if dados_planta:
+                st.plotly_chart(build_donut(dados_planta), use_container_width=True, config={"displayModeBar":False})
+            else:
+                st.caption("Sem saving validado em plantas neste ano ainda.")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with d2:
+            st.markdown('<div class="sc">', unsafe_allow_html=True)
+            st.markdown('<span class="st">Representatividade — Áreas Funcionais</span>', unsafe_allow_html=True)
+            dados_area = saving_por_unidade(ano_dash, "area")
+            if dados_area:
+                st.plotly_chart(build_donut(dados_area), use_container_width=True, config={"displayModeBar":False})
+            else:
+                st.caption("Sem saving validado em áreas neste ano ainda.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sc">', unsafe_allow_html=True)
-    st.markdown('<span class="st">Distribuição por Tipo de Iniciativa — Grupo</span>', unsafe_allow_html=True)
+    st.markdown(f'<span class="st">Distribuição por Tipo de Iniciativa — {titulo_escopo}</span>', unsafe_allow_html=True)
     series_sel = st.multiselect("Séries:", ["Previsto","Validado","Real"],
                                  default=["Previsto","Validado"], key="dist_series")
-    dist = distribuicao_por_tipo(ano_dash)
+    dist = distribuicao_por_tipo(ano_dash, unidade_filtro)
     if dist and series_sel:
         st.plotly_chart(build_distribuicao(dist, series_sel), use_container_width=True, config={"displayModeBar":False})
     else:
@@ -385,8 +395,8 @@ if pagina == "🏠 Dashboard Global":
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sc">', unsafe_allow_html=True)
-    st.markdown('<span class="st">Resumo por Pilar — Grupo</span>', unsafe_allow_html=True)
-    pilares = resumo_por_pilar()
+    st.markdown(f'<span class="st">Resumo por Pilar — {titulo_escopo}</span>', unsafe_allow_html=True)
+    pilares = resumo_por_pilar(unidade_filtro)
     if pilares:
         render_pilar_table(pilares)
     else:
@@ -400,7 +410,8 @@ if pagina == "🏠 Dashboard Global":
     st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown('<span class="st">Performance por Unidade</span>', unsafe_allow_html=True)
     rows_html=""
-    for u in unidades:
+    unidades_tab = [u for u in unidades if not unidade_filtro or u["nome"]==unidade_filtro]
+    for u in unidades_tab:
         kpi   = kpis_unidade(u["nome"],ano_dash)
         meta  = kpi["meta"] or 1
         pct_u = kpi["real"]/meta*100 if kpi["meta"]>0 else 0
@@ -438,7 +449,7 @@ if pagina == "🏠 Dashboard Global":
     st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown('<span class="st">Todos os Projetos</span>', unsafe_allow_html=True)
     c1,c2,c3,c4=st.columns([2,2,2,3])
-    with c1: f_uni=st.multiselect("Unidade:",[u["nome"] for u in unidades],default=[],placeholder="Todas",key="gp_uni")
+    with c1: f_uni=st.multiselect("Unidade:",[u["nome"] for u in unidades],default=([unidade_filtro] if unidade_filtro else []),placeholder="Todas",key="gp_uni")
     with c2: f_st=st.multiselect("Status:",list({p["status"] for p in todos_proj}),default=[],placeholder="Todos",key="gp_st")
     with c3: f_ord=st.selectbox("Ordenar:",["Unidade","Maior Previsto","Atrasados primeiro"],key="gp_ord")
     with c4: f_nm=st.text_input("🔍 Buscar",placeholder="Nome...",key="gp_nm")
