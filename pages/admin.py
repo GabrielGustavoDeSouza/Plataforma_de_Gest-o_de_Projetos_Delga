@@ -247,49 +247,144 @@ def render(user, **colors):
                 st.error(f"Não consegui ler o arquivo: {e}"); xls = None
 
             if xls is not None:
-                sheet_proj = next((v for k,v in xls.items() if "projeto" in _norm(k)), None)
-                sheet_meta = next((v for k,v in xls.items() if "meta" in _norm(k)), None)
+                nomes_abas = list(xls.keys())
+                st.write("Abas encontradas no arquivo:")
+                st.code(", ".join(nomes_abas), language=None)
+
+                def _melhor_chute(padrao):
+                    for k in nomes_abas:
+                        if padrao in _norm(k): return k
+                    return nomes_abas[0]
+
+                c_ab1, c_ab2 = st.columns(2)
+                with c_ab1:
+                    aba_proj = st.selectbox("Qual aba tem os projetos?", nomes_abas,
+                        index=nomes_abas.index(_melhor_chute("projeto")), key="imp_aba_proj")
+                with c_ab2:
+                    opc_meta = ["— Nenhuma —"] + nomes_abas
+                    chute_meta = _melhor_chute("meta")
+                    idx_meta = opc_meta.index(chute_meta) if any("meta" in _norm(k) for k in nomes_abas) else 0
+                    aba_meta = st.selectbox("Qual aba tem as metas? (opcional)", opc_meta,
+                        index=idx_meta, key="imp_aba_meta")
+
+                sheet_proj = xls[aba_proj]
+                sheet_meta = xls[aba_meta] if aba_meta != "— Nenhuma —" else None
+                st.write(f'Colunas em "{aba_proj}":')
+                st.code(", ".join(str(c) for c in sheet_proj.columns), language=None)
+
+                # ── Mapeamento de colunas (auto-sugerido por similaridade, editável) ──
+                CAMPOS = [
+                    ("unidade","Unidade",True,
+                     ["unidade","planta","area","fabrica","unid","filial","site"]),
+                    ("tipo","Tipo",True,
+                     ["tipo","categoria","classificacao","pilar","tipo projeto","tipo de projeto","natureza"]),
+                    ("nome","Nome do Projeto",True,
+                     ["nome do projeto","nome projeto","projeto","nome","titulo","iniciativa"]),
+                    ("va_ggf","VA/GGF",False,
+                     ["va ggf","va/ggf","vaggf","va","ggf","material auxiliar","mat aux","classificacao va"]),
+                    ("descricao","Descrição",False,
+                     ["descricao","objetivo","detalhamento","obs","observacao","escopo"]),
+                    ("responsavel","Responsável",False,
+                     ["responsavel","owner","dono","facilitador","gestor","encarregado"]),
+                    ("inicio","Data Início",False,
+                     ["data inicio","inicio","dt inicio","data de inicio","abertura"]),
+                    ("termino","Data Fim",False,
+                     ["data fim","fim","termino","data termino","dt fim","conclusao","data conclusao","encerramento"]),
+                    ("previsto_unidade","Valor Previsto",True,
+                     ["valor previsto","previsto","valor estimado","estimado"]),
+                    ("mes_primeiro_retorno","Mês Primeiro Retorno",True,
+                     ["mes primeiro retorno","mes do primeiro retorno","ganho a partir de","primeiro retorno",
+                      "1o retorno","1 retorno","mes retorno","data retorno","retorno previsto"]),
+                    ("validacao","Validação",False,
+                     ["validacao","validador","aprovacao","ok nok","validado custos","aprovado custos"]),
+                    ("valor_custos_bruto","Valor Calculado Custos",False,
+                     ["valor calculado custos","valor calculado por custos","calculado custos","saving custos",
+                      "valor custos","custos calculado","saving","valor validado custos","calc custos"]),
+                    ("status","Status",False,
+                     ["status","situacao","fase","andamento","etapa"]),
+                ]
+                cols_disp = ["— Não usar —"] + [str(c) for c in sheet_proj.columns]
+
+                def _tokens(s):
+                    import re
+                    s = _norm(s).replace("º","").replace("ª","")
+                    s = re.sub(r"[^a-z0-9]+"," ",s)
+                    return set(t for t in s.split() if t)
+
+                def _chute_coluna(aliases):
+                    melhor, melhor_score = None, 0
+                    for c in sheet_proj.columns:
+                        cn = _norm(str(c))
+                        cn_tok = _tokens(str(c))
+                        score = 0
+                        for a in aliases:
+                            if a == cn: score = max(score, 100)
+                            elif a in cn: score = max(score, 70)
+                            a_tok = _tokens(a)
+                            if a_tok and cn_tok:
+                                overlap = len(a_tok & cn_tok) / len(a_tok | cn_tok)
+                                score = max(score, int(overlap*60))
+                        if score > melhor_score:
+                            melhor_score, melhor = score, str(c)
+                    return melhor if melhor_score >= 25 else None
+
+                with st.expander("🔧 Conferir/ajustar mapeamento de colunas", expanded=True):
+                    st.caption("Confirme se cada campo da plataforma está apontando pra coluna certa da sua planilha. "
+                               "Campos com * são obrigatórios.")
+                    mapa = {}
+                    cc1, cc2 = st.columns(2)
+                    for i,(chave,label,obrig,aliases) in enumerate(CAMPOS):
+                        chute = _chute_coluna(aliases)
+                        idx = cols_disp.index(chute) if chute in cols_disp else 0
+                        with (cc1 if i%2==0 else cc2):
+                            escolha = st.selectbox(f"{label}{' *' if obrig else ''}", cols_disp,
+                                index=idx, key=f"map_{chave}")
+                        mapa[chave] = None if escolha=="— Não usar —" else escolha
+
+                faltando = [label for chave,label,obrig,_ in CAMPOS if obrig and not mapa.get(chave)]
+                if faltando:
+                    st.error(f"Aponte uma coluna pra: {', '.join(faltando)} — são obrigatórios pra importar.")
+
+                def _get(row,chave):
+                    col = mapa.get(chave)
+                    return row[col] if col else None
 
                 linhas_ok, linhas_erro = [], []
-                if sheet_proj is not None:
-                    col_map = {_norm(c):c for c in sheet_proj.columns}
-                    def _get(row,*chaves):
-                        for ch in chaves:
-                            if ch in col_map: return row[col_map[ch]]
-                        return None
-
+                if not faltando:
                     for idx,row in sheet_proj.iterrows():
-                        nome = _get(row,"nome do projeto","nome")
+                        nome = _get(row,"nome")
                         if pd.isna(nome) or not str(nome).strip(): continue
                         motivo=[]
                         unid = normalizar_valor_lista(_get(row,"unidade"), unidades_disp)
                         if not unid: motivo.append("unidade não reconhecida")
                         tipo = normalizar_valor_lista(_get(row,"tipo"), TIPOS_PROJETO)
                         if not tipo: motivo.append("tipo não reconhecido")
-                        va = normalizar_valor_lista(_get(row,"va/ggf","vaggf","va"), VA_GGF_OPTS)
+                        va = normalizar_valor_lista(_get(row,"va_ggf"), VA_GGF_OPTS)
                         if not va: va = "VA"
-                        mpr = _parse_mes(_get(row,"mes primeiro retorno","mes do primeiro retorno"))
+                        mpr = _parse_mes(_get(row,"mes_primeiro_retorno"))
                         if not mpr: motivo.append("mês primeiro retorno inválido")
-                        prev = _get(row,"valor previsto")
-                        prev = float(prev) if not pd.isna(prev) else 0.0
+                        prev = _get(row,"previsto_unidade")
+                        prev = float(prev) if prev is not None and not pd.isna(prev) else 0.0
                         if prev<=0: motivo.append("valor previsto zerado")
-                        valid = normalizar_valor_lista(_get(row,"validacao","validação"), ["OK","NOK","Pendente"]) or "Pendente"
+                        valid = normalizar_valor_lista(_get(row,"validacao"), ["OK","NOK","Pendente"]) or "Pendente"
                         status = normalizar_valor_lista(_get(row,"status"), STATUS_OPTS)
                         linha = {
                             "linha_planilha": idx+2, "nome": str(nome).strip(),
                             "unidade": unid, "tipo": tipo, "va_ggf": va,
-                            "descricao": str(_get(row,"descricao","descrição") or ""),
-                            "responsavel": str(_get(row,"responsavel","responsável") or ""),
-                            "inicio": _parse_data(_get(row,"data inicio","data início")),
-                            "termino": _parse_data(_get(row,"data fim")),
+                            "descricao": str(_get(row,"descricao") or ""),
+                            "responsavel": str(_get(row,"responsavel") or ""),
+                            "inicio": _parse_data(_get(row,"inicio")),
+                            "termino": _parse_data(_get(row,"termino")),
                             "previsto_unidade": prev,
                             "mes_primeiro_retorno": mpr,
                             "validacao": valid,
-                            "valor_custos_bruto": _get(row,"valor calculado custos","valor calculado por custos"),
+                            "valor_custos_bruto": _get(row,"valor_custos_bruto"),
                             "status": status,
                         }
                         if motivo: linha["_erro"] = ", ".join(motivo); linhas_erro.append(linha)
                         else: linhas_ok.append(linha)
+                else:
+                    linhas_ok, linhas_erro = [], []
 
                 metas_linhas = []
                 if sheet_meta is not None:
