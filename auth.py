@@ -64,6 +64,8 @@ def login_page():
 
     .login-foot{{text-align:center;color:rgba(255,255,255,.28);font-size:10px;
       margin-top:26px;letter-spacing:.3px;}}
+    .login-credit{{text-align:center;color:rgba(255,255,255,.16);font-size:9px;
+      margin-top:6px;letter-spacing:.3px;}}
     </style>
     """, unsafe_allow_html=True)
 
@@ -85,6 +87,7 @@ def login_page():
 
         st.markdown(f"""
         <div class="login-foot">Grupo Delga Ind. e Com. · Acesso restrito a colaboradores autorizados</div>
+        <div class="login-credit">Desenvolvido por Gabriel Souza · Pós-graduação Lato Sensu em Gestão de Projetos</div>
         """, unsafe_allow_html=True)
 
         if btn:
