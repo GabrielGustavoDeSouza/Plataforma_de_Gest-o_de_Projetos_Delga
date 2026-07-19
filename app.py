@@ -6,7 +6,9 @@ from database import (listar_unidades, listar_projetos, get_lancamentos,
                       kpis_unidade, get_todas_metas, get_links, init_db,
                       is_extra_dre, get_curva_unidade, get_curva_saving,
                       normalizar_url, fmt_brl as _fmt_brl, fmt_card as _fmt_card,
-                      APP_VERSION, PERFIS_LBL)
+                      funil_conversao, saving_por_unidade, distribuicao_por_tipo,
+                      resumo_por_pilar, get_carry_over,
+                      APP_VERSION, PERFIS_LBL, MESES_PT)
 from auth import login_page, sidebar_user, require_login
 from assets import LOGO_DATA_URI
 
@@ -177,84 +179,170 @@ def linha_atrasada(p):
     try: return date(int(t[:4]),int(t[5:7]),28) < date.today()
     except: return False
 
+# ── Componentes do dashboard estratégico (funil, gauge, donut, distribuição) ──
+def year_nav(key, help_txt=""):
+    """Navegador discreto ‹ ano › — nasce sempre no ano corrente, mas deixa
+    andar livremente pra qualquer ano (mesmo zerado)."""
+    if key not in st.session_state:
+        st.session_state[key] = datetime.now().year
+    c1,c2,c3 = st.columns([1,2,1])
+    with c1:
+        if st.button("‹", key=f"{key}_prev", use_container_width=True):
+            st.session_state[key] -= 1; st.rerun()
+    with c2:
+        hc(f'<div style="text-align:center;font-size:13px;font-weight:700;'
+           f'color:{NAVY};padding-top:6px;">{st.session_state[key]}</div>')
+    with c3:
+        if st.button("›", key=f"{key}_next", use_container_width=True):
+            st.session_state[key] += 1; st.rerun()
+    return st.session_state[key]
+
+def render_carry_over(ano_ref, unidade_nome=None):
+    """Botão discreto que só aparece quando há valor de retorno previsto
+    saindo do ano vigente pro ano seguinte (Ganho a partir de fora de jan)."""
+    fora = get_carry_over(ano_ref, unidade_nome)
+    seguinte = [f for f in fora if f["direcao"]=="seguinte"]
+    if not seguinte: return
+    total = sum(f["valor"] for f in seguinte)
+    with st.expander(f"↷ Carry Over — {fmt_brl(total)} de {ano_ref} com retorno "
+                     f"previsto em {ano_ref+1}", expanded=False):
+        rows = "".join(f"""<tr>
+          <td style="font-size:11px;font-weight:600;">{f['projeto']}</td>
+          <td style="font-size:11px;">{f['unidade']}</td>
+          <td style="font-size:11px;text-align:center;">{MESES_PT[f['mes']-1]}/{f['ano']}</td>
+          <td style="font-size:11px;text-align:right;color:{BLUE};">{fmt_brl(f['valor'])}</td>
+        </tr>""" for f in seguinte)
+        hc(f"""<table class="dt"><thead><tr><th>Projeto</th><th>Unidade</th>
+          <th>Mês</th><th style="text-align:right;">Valor</th></tr></thead>
+          <tbody>{rows}</tbody></table>""")
+
+def build_funnel(dados):
+    labels  = ["Meta do Grupo","Previsto (Unidade)","Validado por Custos","Real Lançado"]
+    valores = [dados["meta"], dados["previsto"], dados["validado"], dados["real"]]
+    fig = go.Figure(go.Funnel(
+        y=labels, x=valores, textposition="inside",
+        texttemplate="%{value:,.0f}<br>(%{percentInitial})",
+        marker=dict(color=[NAVY, BLUE, BLUE2, GREEN]),
+        connector=dict(line=dict(color="#E2E8F0", width=1))))
+    fig.update_layout(separators=",.", margin=dict(l=10,r=10,t=10,b=10), height=320,
+                       paper_bgcolor="white", plot_bgcolor="white",
+                       font=dict(family="Inter", size=12))
+    return fig
+
+def build_gauge(pct):
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number", value=min(pct,100) if pct<999 else 100,
+        number={"suffix":"%","font":{"size":32,"color":NAVY},
+                "valueformat":".1f"},
+        gauge={"axis":{"range":[0,100],"tickcolor":SILVER,"tickfont":{"size":9}},
+               "bar":{"color":BLUE,"thickness":0.28},
+               "bgcolor":"white","borderwidth":0,
+               "steps":[{"range":[0,40],"color":"#EAF0FB"},
+                        {"range":[40,70],"color":"#FFF6E5"},
+                        {"range":[70,100],"color":"#E6F4EC"}]}))
+    fig.update_layout(margin=dict(l=24,r=24,t=20,b=10), height=320,
+                       paper_bgcolor="white", font=dict(family="Inter"))
+    return fig
+
+def build_donut(dados):
+    labels  = [d["unidade"] for d in dados]
+    valores = [d["valor"] for d in dados]
+    paleta  = [NAVY, BLUE, BLUE2, TEAL, "#6B7FD7", "#8A9BB0", "#B8C4E0", "#4A5FC1"]
+    fig = go.Figure(go.Pie(
+        labels=labels, values=valores, hole=0.62, sort=False,
+        marker=dict(colors=paleta[:len(labels)], line=dict(color="white", width=2)),
+        textinfo="none",
+        hovertemplate="%{label}: R$ %{value:,.0f} (%{percent})<extra></extra>"))
+    fig.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=300,
+                       paper_bgcolor="white", separators=",.",
+                       legend=dict(orientation="v", font=dict(size=11)),
+                       annotations=[dict(text=fmt_card(sum(valores)), x=0.5, y=0.5,
+                                          font=dict(size=15, color=NAVY), showarrow=False)])
+    return fig
+
+def build_distribuicao(dist, series_sel):
+    tipos = sorted(dist.keys(), key=lambda t: -dist[t]["previsto"])
+    cor = {"Previsto":SILVER, "Validado":BLUE, "Real":GREEN}
+    fig = go.Figure()
+    for serie in ["Previsto","Validado","Real"]:
+        if serie not in series_sel: continue
+        vals = [dist[t][serie.lower()] for t in tipos]
+        fig.add_trace(go.Bar(y=tipos, x=vals, name=serie, orientation="h",
+                              marker_color=cor[serie],
+                              hovertemplate="%{y}: R$ %{x:,.0f}<extra>"+serie+"</extra>"))
+    fig.update_layout(barmode="group", separators=",.",
+                       height=max(280, 46*len(tipos)),
+                       margin=dict(l=10,r=10,t=10,b=10),
+                       paper_bgcolor="white", plot_bgcolor="white",
+                       xaxis=dict(tickprefix="R$ ", tickformat=",.0f", showgrid=True, gridcolor="#F0F4F8"),
+                       legend=dict(orientation="h", y=1.08),
+                       font=dict(family="Inter", size=11))
+    return fig
+
+def render_pilar_table(pilares):
+    rows=""; tq=tp=tv=tr=0
+    for tipo, d in sorted(pilares.items(), key=lambda x:-x[1]["previsto"]):
+        badge = ('<span style="color:#9B59B6;">↷ N/DRE</span>' if d["extra"]
+                  else f'<span style="color:{GREEN};">✓ DRE</span>')
+        rows += f"""<tr>
+          <td style="font-weight:600;">{tipo}<br><span style="font-size:9px;">{badge}</span></td>
+          <td style="text-align:center;">{d['qtd']}</td>
+          <td style="text-align:right;">{fmt_brl(d['previsto'])}</td>
+          <td style="text-align:right;color:{BLUE};">{fmt_brl(d['validado'])}</td>
+          <td style="text-align:right;color:{GREEN};font-weight:600;">{fmt_brl(d['real_total'])}</td>
+        </tr>"""
+        tq+=d['qtd']; tp+=d['previsto']; tv+=d['validado']; tr+=d['real_total']
+    rows += f"""<tr style="background:#F4F6FB;font-weight:700;">
+      <td>TOTAL</td><td style="text-align:center;">{tq}</td>
+      <td style="text-align:right;">{fmt_brl(tp)}</td>
+      <td style="text-align:right;color:{BLUE};">{fmt_brl(tv)}</td>
+      <td style="text-align:right;color:{GREEN};">{fmt_brl(tr)}</td></tr>"""
+    hc(f"""<table class="dt"><thead><tr>
+      <th>Pilar</th><th>Qtd</th><th style="text-align:right;">Saving Previsto</th>
+      <th style="text-align:right;">Saving Validado</th>
+      <th style="text-align:right;">Até o Momento</th>
+    </tr></thead><tbody>{rows}</tbody></table>""")
+
 # ── Dashboard Global ──────────────────────────────────────────────────────────
 if pagina == "🏠 Dashboard Global":
     init_db()
     unidades   = listar_unidades()
     todos_proj = listar_projetos()
-    metas_ano  = get_todas_metas(ano_atual)
-    total_meta = sum(m["valor"] for m in metas_ano)
-    hoje       = date.today()
 
-    # Calcular KPIs globais
-    total_prev_uni = 0.0
-    total_validado = 0.0
-    total_real     = 0.0
-    total_extra    = 0.0
+    c_tit, c_nav = st.columns([5,1])
+    with c_tit:
+        st.markdown('<span class="st">Visão Estratégica do Grupo</span>', unsafe_allow_html=True)
+    with c_nav:
+        ano_dash = year_nav("dash_ano")
 
-    for p in todos_proj:
-        extra = is_extra_dre(p["tipo"])
-        curva = get_curva_unidade(p["id"])
-        if extra:
-            # Extra DRE: soma frações dos meses já passados
-            for (y,m),v in curva.items():
-                if y==ano_atual and date(y,m,1) <= date(hoje.year,hoje.month,1):
-                    total_extra += v
-        else:
-            # DRE: soma frações do ano
-            prev_ano = sum(v for (y,m),v in curva.items() if y==ano_atual)
-            total_prev_uni += prev_ano
-            curva_sav = get_curva_saving(p["id"])
-            total_validado += sum(v for (y,m),v in curva_sav.items() if y==ano_atual)
+    render_carry_over(ano_dash)
 
-    # Real: lançamentos DRE do ano
-    for l in get_lancamentos(ano=ano_atual):
-        p_tipo = next((p["tipo"] for p in todos_proj if p["id"]==l["projeto_id"]),"")
-        if not is_extra_dre(p_tipo):
-            total_real += l["valor_real"]
-
+    funil = funil_conversao(ano_dash)
     n_proj = len(todos_proj)
-    pct    = total_real/total_meta*100 if total_meta>0 else 0
-    pct_c  = GREEN if pct>=60 else (AMBER if pct>=30 else RED)
 
-    hc(f"""
-<div class="kpi-grid">
-  <div class="kpi-card">
-    <div class="kpi-l">Meta Anual {ano_atual}</div>
-    <div class="kpi-v">{fmt_card(total_meta)}</div>
-    <div class="kpi-d">Todas as unidades</div>
-  </div>
-  <div class="kpi-card amber">
-    <div class="kpi-l">Previsto (Unidade)</div>
-    <div class="kpi-v">{fmt_card(total_prev_uni)}</div>
-    <div class="kpi-d">Soma DRE no ano</div>
-  </div>
-  <div class="kpi-card" style="border-left-color:{TEAL};">
-    <div class="kpi-l">Validado por Custos</div>
-    <div class="kpi-v" style="color:{TEAL};">{fmt_card(total_validado)}</div>
-    <div class="kpi-d">Saving validado DRE</div>
-  </div>
-  <div class="kpi-card" style="border-left-color:{GREEN};background:linear-gradient(135deg,#F0FBF4 0%,white 60%);">
-    <div class="kpi-l">Retorno Real {ano_atual}</div>
-    <div class="kpi-v" style="color:{GREEN};">{fmt_card(total_real)}</div>
-    <div class="kpi-d">Lançamentos DRE</div>
-  </div>
-  <div class="kpi-card" style="border-left-color:{pct_c};">
-    <div class="kpi-l">% Atingimento</div>
-    <div class="kpi-v" style="color:{pct_c};">{pct:.1f}%</div>
-    <div class="kpi-d">Real / Meta</div>
-  </div>
-  <div class="kpi-card" style="border-left-color:#9B59B6;">
-    <div class="kpi-l">Extra DRE</div>
-    <div class="kpi-v" style="color:#9B59B6;">{fmt_card(total_extra)}</div>
-    <div class="kpi-d">Acumulado até hoje</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-l">Iniciativas</div>
-    <div class="kpi-v">{n_proj}</div>
-    <div class="kpi-d">Projetos ativos</div>
-  </div>
-</div>""")
+    c1, c2 = st.columns([3,2])
+    with c1:
+        st.markdown('<div class="sc">', unsafe_allow_html=True)
+        st.markdown(f'<span class="st">Funil de Conversão — Portfólio → DRE ({ano_dash})</span>', unsafe_allow_html=True)
+        st.caption("Quanto do portfólio mapeado converte em resultado no DRE?")
+        st.plotly_chart(build_funnel(funil), use_container_width=True, config={"displayModeBar":False})
+        st.markdown('</div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="sc">', unsafe_allow_html=True)
+        st.markdown('<span class="st">Atingimento da Meta</span>', unsafe_allow_html=True)
+        st.plotly_chart(build_gauge(funil["pct_meta"]), use_container_width=True, config={"displayModeBar":False})
+        cg1, cg2 = st.columns(2)
+        with cg1:
+            hc(f"""<div style="background:#F4F6FB;border-radius:8px;padding:8px 12px;">
+                <div style="font-size:9px;color:{SILVER};text-transform:uppercase;">Gap para Meta</div>
+                <div style="font-size:15px;font-weight:700;color:{NAVY};">{fmt_brl(max(funil['meta']-funil['real'],0))}</div>
+                </div>""")
+        with cg2:
+            hc(f"""<div style="background:#F4F6FB;border-radius:8px;padding:8px 12px;">
+                <div style="font-size:9px;color:{SILVER};text-transform:uppercase;">Validado / Meta</div>
+                <div style="font-size:15px;font-weight:700;color:{NAVY};">{(funil['validado']/funil['meta']*100 if funil['meta']>0 else 0):.1f}%</div>
+                </div>""")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Nota metodológica
     hc(f"""
@@ -265,15 +353,58 @@ if pagina == "🏠 Dashboard Global":
   <span style="color:#9B59B6;">↷ Não DRE:</span> Kaizen Custo Evitado · Kaizen Capital de Giro · Meta Executiva — geram valor operacional mas não reduzem GGF no DRE.
 </div>""")
 
+    d1, d2 = st.columns(2)
+    with d1:
+        st.markdown('<div class="sc">', unsafe_allow_html=True)
+        st.markdown('<span class="st">Representatividade — Plantas</span>', unsafe_allow_html=True)
+        dados_planta = saving_por_unidade(ano_dash, "planta")
+        if dados_planta:
+            st.plotly_chart(build_donut(dados_planta), use_container_width=True, config={"displayModeBar":False})
+        else:
+            st.caption("Sem saving validado em plantas neste ano ainda.")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with d2:
+        st.markdown('<div class="sc">', unsafe_allow_html=True)
+        st.markdown('<span class="st">Representatividade — Áreas Funcionais</span>', unsafe_allow_html=True)
+        dados_area = saving_por_unidade(ano_dash, "area")
+        if dados_area:
+            st.plotly_chart(build_donut(dados_area), use_container_width=True, config={"displayModeBar":False})
+        else:
+            st.caption("Sem saving validado em áreas neste ano ainda.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="sc">', unsafe_allow_html=True)
+    st.markdown('<span class="st">Distribuição por Tipo de Iniciativa — Grupo</span>', unsafe_allow_html=True)
+    series_sel = st.multiselect("Séries:", ["Previsto","Validado","Real"],
+                                 default=["Previsto","Validado"], key="dist_series")
+    dist = distribuicao_por_tipo(ano_dash)
+    if dist and series_sel:
+        st.plotly_chart(build_distribuicao(dist, series_sel), use_container_width=True, config={"displayModeBar":False})
+    else:
+        st.caption("Sem dados suficientes para este ano.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="sc">', unsafe_allow_html=True)
+    st.markdown('<span class="st">Resumo por Pilar — Grupo</span>', unsafe_allow_html=True)
+    pilares = resumo_por_pilar()
+    if pilares:
+        render_pilar_table(pilares)
+    else:
+        st.caption("Nenhum projeto cadastrado ainda.")
+    st.markdown(f'<div style="font-size:10px;color:{SILVER};margin-top:6px;">'
+               f'"Até o Momento" é o acumulado histórico de real lançado, considerando todos os anos.</div>',
+               unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
     # Tabela performance por unidade
     st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown('<span class="st">Performance por Unidade</span>', unsafe_allow_html=True)
     rows_html=""
     for u in unidades:
-        kpi   = kpis_unidade(u["nome"],ano_atual)
+        kpi   = kpis_unidade(u["nome"],ano_dash)
         meta  = kpi["meta"] or 1
         pct_u = kpi["real"]/meta*100 if kpi["meta"]>0 else 0
-        bar_c = GREEN if pct_u>=60 else (AMBER if pct_u>=30 else RED)
+        bar_c = GREEN if pct_u>=60 else (AMBER if pct_u>=30 else SILVER)
         bar_w = min(pct_u,100)
         badge = (f'<span style="background:#E6F4EC;color:{GREEN};font-size:10px;'
                  f'padding:2px 8px;border-radius:10px;font-weight:600;">DESTAQUE ✓</span>'
@@ -284,8 +415,8 @@ if pagina == "🏠 Dashboard Global":
           <td style="font-weight:600;">{u['nome']}</td>
           <td style="font-size:11px;">{u['tipo'].title()}</td>
           <td style="text-align:right;">{fmt_brl(kpi['meta'])}</td>
-          <td style="text-align:right;color:{AMBER};">{fmt_brl(kpi['previsto'])}</td>
-          <td style="text-align:right;color:{TEAL};">{fmt_brl(kpi['validado'])}</td>
+          <td style="text-align:right;color:{SILVER};">{fmt_brl(kpi['previsto'])}</td>
+          <td style="text-align:right;color:{BLUE};">{fmt_brl(kpi['validado'])}</td>
           <td style="text-align:right;color:{GREEN};font-weight:600;">{fmt_brl(kpi['real'])}</td>
           <td><div style="display:flex;align-items:center;gap:8px;">
             <div style="width:70px;height:7px;background:#E2E8F0;border-radius:4px;overflow:hidden;">
@@ -296,8 +427,8 @@ if pagina == "🏠 Dashboard Global":
     hc(f"""<table class="dt"><thead><tr>
       <th>Unidade</th><th>Tipo</th>
       <th style="text-align:right;">Meta</th>
-      <th style="text-align:right;color:{AMBER};">Previsto</th>
-      <th style="text-align:right;color:{TEAL};">Validado</th>
+      <th style="text-align:right;color:{SILVER};">Previsto</th>
+      <th style="text-align:right;color:{BLUE};">Validado</th>
       <th style="text-align:right;color:{GREEN};">Real</th>
       <th>% Meta</th><th>Status</th>
     </tr></thead><tbody>{rows_html}</tbody></table>""")
