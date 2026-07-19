@@ -11,8 +11,8 @@ def pode_editar(user, unidade_nome):
     return False
 
 def render(user, **colors):
-    NAVY=colors.get("NAVY","#1C2B4A"); AMBER=colors.get("AMBER","#E8A838")
-    GREEN=colors.get("GREEN","#1A7A3A"); SILVER=colors.get("SILVER","#8A9BB0")
+    NAVY=colors.get("NAVY","#0B0F2B"); AMBER=colors.get("AMBER","#E8A838")
+    GREEN=colors.get("GREEN","#1AA260"); SILVER=colors.get("SILVER","#8A9BB0")
 
     st.markdown('<span class="st">Novo Projeto</span>', unsafe_allow_html=True)
 
