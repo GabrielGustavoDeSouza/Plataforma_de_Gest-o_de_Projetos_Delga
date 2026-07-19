@@ -34,8 +34,9 @@ def linha_atrasada(p):
     except: return False
 
 def render(user, **colors):
-    NAVY=colors.get("NAVY","#1C2B4A"); GREEN=colors.get("GREEN","#1A7A3A")
-    AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#C8202E")
+    NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
+    AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#D93B3B")
+    BLUE=colors.get("BLUE","#1428FF"); BLUE2=colors.get("BLUE2","#3D5CFF")
     TEAL=colors.get("TEAL","#20C997"); SILVER=colors.get("SILVER","#8A9BB0")
 
     verificar_campeoes()
@@ -274,13 +275,13 @@ def render(user, **colors):
         font=dict(family="Inter"))
 
     hc(f'<p style="font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;'
-       f'letter-spacing:.7px;border-bottom:2px solid {RED};padding-bottom:6px;'
+       f'letter-spacing:.7px;border-bottom:2px solid {BLUE};padding-bottom:6px;'
        f'margin-bottom:8px;display:inline-block;">Evolução Mensal — {titulo_g} {ano_sel}</p>')
     st.plotly_chart(fig,use_container_width=True,config={"displayModeBar":False})
 
     # ── Lista de Projetos ─────────────────────────────────────────────────────
     hc(f'<p style="font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;'
-       f'letter-spacing:.7px;border-bottom:2px solid {RED};padding-bottom:6px;'
+       f'letter-spacing:.7px;border-bottom:2px solid {BLUE};padding-bottom:6px;'
        f'margin:20px 0 14px;display:inline-block;">Projetos da Unidade</p>')
 
     c1,c2,c3=st.columns([2,2,4])
