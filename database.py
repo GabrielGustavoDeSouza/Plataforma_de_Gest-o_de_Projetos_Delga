@@ -94,6 +94,68 @@ def init_db():
 
 def hash_senha(s): return hashlib.sha256(s.encode()).hexdigest()
 
+def normalizar_valor_lista(valor, opcoes):
+    """Casa 'valor' (vindo de uma planilha, com acento/caixa variável) com a
+    opção oficial mais parecida da lista. Retorna a opção oficial ou None."""
+    import unicodedata
+    def _norm(s):
+        s = str(s or "").strip().lower()
+        s = "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+        return s
+    alvo = _norm(valor)
+    if not alvo: return None
+    for op in opcoes:
+        if _norm(op) == alvo:
+            return op
+    # tenta por substring (ex: "kaizen ganho recorrente" ~ "Kaizen - Ganho Recorrente")
+    for op in opcoes:
+        if alvo in _norm(op) or _norm(op) in alvo:
+            return op
+    return None
+
+def anualizar_valor_custos(valor_bruto, mes_primeiro_retorno_str):
+    """Custos normalmente calcula o saving 'do primeiro ganho até dezembro',
+    não os 12 meses cheios que o sistema espera para ratear. Esta função
+    reverte essa conta: valor_mensal x 12 = valor anualizado."""
+    try:
+        dt = datetime.strptime(str(mes_primeiro_retorno_str)[:7], "%Y-%m")
+    except Exception:
+        return None
+    meses_restantes = 13 - dt.month
+    if meses_restantes <= 0 or meses_restantes > 12: return None
+    if not valor_bruto: return 0.0
+    return round(float(valor_bruto) / meses_restantes * 12, 2)
+
+def importar_projetos_lote(linhas, criado_por_id):
+    """Importa uma lista de dicts (uma linha de planilha cada) como projetos.
+    Cada linha já deve vir validada/normalizada. Retorna (sucesso, erros)."""
+    sucesso, erros = [], []
+    for i, l in enumerate(linhas, start=1):
+        try:
+            valor_anual = anualizar_valor_custos(l.get("valor_custos_bruto"), l["mes_primeiro_retorno"])
+            pid = criar_projeto(l["unidade"], {
+                "nome": l["nome"], "tipo": l["tipo"], "va_ggf": l["va_ggf"],
+                "responsavel": l.get("responsavel",""), "descricao": l.get("descricao",""),
+                "obs": "[Importado via Excel]",
+                "inicio": l.get("inicio",""), "termino": l.get("termino",""),
+                "mes_primeiro_retorno": l["mes_primeiro_retorno"],
+                "previsto_unidade": l["previsto_unidade"],
+                "status": l.get("status") or "⏳ Em Execução",
+                "check_a3": 1, "check_memoria": 1, "check_formalizado": 1,
+            }, criado_por_id)
+            campos_extra = {}
+            if l.get("validacao") in ("OK","NOK"):
+                campos_extra["validador_ok"] = l["validacao"]
+            if valor_anual is not None:
+                campos_extra["previsto_custos"] = valor_anual
+                campos_extra["saving_validado"] = valor_anual if l.get("validacao")=="OK" else 0.0
+            if campos_extra:
+                atualizar_projeto(pid, campos_extra, criado_por_id)
+            sucesso.append({"linha": i, "nome": l["nome"], "id": pid})
+        except Exception as e:
+            erros.append({"linha": i, "nome": l.get("nome","?"), "erro": str(e)})
+    return sucesso, erros
+
 def normalizar_url(url):
     """Garante que o link tenha esquema (https://), senão o navegador
     interpreta como caminho relativo e abre a própria página do app."""
