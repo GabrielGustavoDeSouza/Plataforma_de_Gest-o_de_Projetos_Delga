@@ -87,7 +87,7 @@ def login_page():
 
         st.markdown(f"""
         <div class="login-foot">Grupo Delga Ind. e Com. · Acesso restrito a colaboradores autorizados</div>
-        <div class="login-credit">Desenvolvido por Gabriel Souza · Pós-graduação Lato Sensu em Gestão de Projetos</div>
+        <div class="login-credit">Desenvolvido por Gabriel Souza · Lato Sensu em Gestão de Projetos</div>
         """, unsafe_allow_html=True)
 
         if btn:
