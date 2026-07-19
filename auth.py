@@ -3,8 +3,8 @@ from database import autenticar
 from assets import LOGO_LIGHT_DATA_URI
 
 NAVY  = "#0B0F2B"
-BLUE  = "#1428FF"
-BLUE2 = "#3D5CFF"
+BLUE  = "#1B2A9E"
+BLUE2 = "#33459E"
 RED   = "#D93B3B"
 
 def login_page():
@@ -87,7 +87,7 @@ def login_page():
 
         st.markdown(f"""
         <div class="login-foot">Grupo Delga Ind. e Com. · Acesso restrito a colaboradores autorizados</div>
-        <div class="login-credit">Desenvolvido por Gabriel Souza · Lato Sensu em Gestão de Projetos</div>
+        <div class="login-credit">Desenvolvido por Gabriel Souza · Pós-graduação Lato Sensu em Gestão de Projetos</div>
         """, unsafe_allow_html=True)
 
         if btn:
