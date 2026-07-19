@@ -8,6 +8,7 @@ from database import (listar_unidades, kpis_unidade, alertas_validacao,
                       del_link, get_todas_metas, get_lancamentos, get_curva_unidade,
                       get_curva_custos, is_extra_dre, get_ultima_obs_custos,
                       normalizar_url, fmt_brl as _fmt_brl, fmt_card,
+                      funil_conversao, get_carry_over,
                       TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS, MESES_PT)
 
 def clean_html(html):
@@ -73,25 +74,78 @@ def render(user, **colors):
         user["perfil"] in ("facilitador","gestor") and user.get("unidade")==sel)
     is_cc = user["perfil"] in ("admin","cost_control")
 
-    # Anos com meta
-    anos_com_meta=[]
-    for a in range(2026,2031):
-        if any(m["valor"]>0 for m in get_todas_metas(a)):
-            anos_com_meta.append(a)
-    if not anos_com_meta: anos_com_meta=[datetime.now().year]
-    if "ano_uni" not in st.session_state or \
-       st.session_state["ano_uni"] not in anos_com_meta:
-        st.session_state["ano_uni"]=anos_com_meta[-1]
-    ano_sel=st.session_state["ano_uni"]
-    if len(anos_com_meta)>1:
-        cols_a=st.columns(len(anos_com_meta))
-        for i,a in enumerate(anos_com_meta):
-            with cols_a[i]:
-                if st.button(str(a),key=f"ano_{a}",
-                             type="primary" if a==ano_sel else "secondary",
-                             use_container_width=True):
-                    st.session_state["ano_uni"]=a; st.rerun()
-        ano_sel=st.session_state["ano_uni"]
+    # Navegador de ano — discreto, nasce no ano corrente, anda livre pra
+    # qualquer ano mesmo zerado (regra: quando virar o ano, nasce no novo
+    # ano automaticamente, sem travar a navegação pro ano anterior/seguinte)
+    if "ano_uni" not in st.session_state:
+        st.session_state["ano_uni"] = datetime.now().year
+    c_tit, c_prev, c_ano, c_next = st.columns([6,1,1,1])
+    with c_tit:
+        hc(f'<p style="font-size:10px;font-weight:600;color:{SILVER};'
+           f'text-transform:uppercase;letter-spacing:.6px;margin-top:8px;">Ano de referência</p>')
+    with c_prev:
+        if st.button("‹", key="ano_uni_prev", use_container_width=True):
+            st.session_state["ano_uni"] -= 1; st.rerun()
+    with c_ano:
+        hc(f'<div style="text-align:center;font-size:13px;font-weight:700;'
+           f'color:{NAVY};padding-top:6px;">{st.session_state["ano_uni"]}</div>')
+    with c_next:
+        if st.button("›", key="ano_uni_next", use_container_width=True):
+            st.session_state["ano_uni"] += 1; st.rerun()
+    ano_sel = st.session_state["ano_uni"]
+
+    # Carry Over — só aparece se houver valor saindo deste ano pro seguinte
+    fora = get_carry_over(ano_sel, sel)
+    seguinte = [f for f in fora if f["direcao"]=="seguinte"]
+    if seguinte:
+        total_co = sum(f["valor"] for f in seguinte)
+        with st.expander(f"↷ Carry Over — {fmt_brl(total_co)} de {ano_sel} com "
+                         f"retorno previsto em {ano_sel+1}", expanded=False):
+            rows_co = "".join(f"""<tr>
+              <td style="font-size:11px;font-weight:600;">{f['projeto']}</td>
+              <td style="font-size:11px;text-align:center;">{MESES_PT[f['mes']-1]}/{f['ano']}</td>
+              <td style="font-size:11px;text-align:right;color:{BLUE};">{fmt_brl(f['valor'])}</td>
+            </tr>""" for f in seguinte)
+            hc(f"""<table class="dt"><thead><tr><th>Projeto</th><th>Mês</th>
+              <th style="text-align:right;">Valor</th></tr></thead>
+              <tbody>{rows_co}</tbody></table>""")
+
+    # Funil + Gauge enxutos, só da unidade selecionada
+    funil_u = funil_conversao(ano_sel, sel)
+    c_f, c_g = st.columns([3,2])
+    with c_f:
+        st.markdown('<div class="sc">', unsafe_allow_html=True)
+        hc(f'<p style="font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;'
+           f'letter-spacing:.7px;border-bottom:2px solid {BLUE};padding-bottom:6px;'
+           f'margin-bottom:8px;display:inline-block;">Funil de Conversão — {sel} {ano_sel}</p>')
+        fig_f = go.Figure(go.Funnel(
+            y=["Meta","Previsto","Validado","Real"],
+            x=[funil_u["meta"], funil_u["previsto"], funil_u["validado"], funil_u["real"]],
+            textposition="inside", texttemplate="%{value:,.0f}<br>(%{percentInitial})",
+            marker=dict(color=[NAVY, BLUE, BLUE2, GREEN]),
+            connector=dict(line=dict(color="#E2E8F0", width=1))))
+        fig_f.update_layout(separators=",.", margin=dict(l=10,r=10,t=10,b=10), height=260,
+                             paper_bgcolor="white", plot_bgcolor="white", font=dict(family="Inter", size=11))
+        st.plotly_chart(fig_f, use_container_width=True, config={"displayModeBar":False})
+        st.markdown('</div>', unsafe_allow_html=True)
+    with c_g:
+        st.markdown('<div class="sc">', unsafe_allow_html=True)
+        hc(f'<p style="font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;'
+           f'letter-spacing:.7px;border-bottom:2px solid {BLUE};padding-bottom:6px;'
+           f'margin-bottom:8px;display:inline-block;">Atingimento da Meta</p>')
+        pct_gauge = min(funil_u["pct_meta"],100) if funil_u["pct_meta"]<999 else 100
+        fig_g = go.Figure(go.Indicator(
+            mode="gauge+number", value=pct_gauge,
+            number={"suffix":"%","font":{"size":26,"color":NAVY},"valueformat":".1f"},
+            gauge={"axis":{"range":[0,100],"tickcolor":SILVER,"tickfont":{"size":8}},
+                   "bar":{"color":BLUE,"thickness":0.28},"bgcolor":"white","borderwidth":0,
+                   "steps":[{"range":[0,40],"color":"#EAF0FB"},
+                            {"range":[40,70],"color":"#FFF6E5"},
+                            {"range":[70,100],"color":"#E6F4EC"}]}))
+        fig_g.update_layout(margin=dict(l=16,r=16,t=10,b=0), height=260,
+                             paper_bgcolor="white", font=dict(family="Inter"))
+        st.plotly_chart(fig_g, use_container_width=True, config={"displayModeBar":False})
+        st.markdown('</div>', unsafe_allow_html=True)
 
     kpi  = kpis_unidade(sel,ano_sel)
     meta = kpi["meta"] or 1
@@ -227,7 +281,7 @@ def render(user, **colors):
         "Acum. Previsto Uni":(NAVY,"line_dot"),
         "Acum. Calculado":   ("#F39C12","line_dot"),
         "Acum. Real":        (GREEN,"line"),
-        "Projeção Meta":     (RED,"line_dash"),
+        "Projeção Meta":     (BLUE2,"line_dash"),
     }
     dados={
         "Previsto Unidade":  pu_m,
@@ -258,7 +312,7 @@ def render(user, **colors):
                 line=dict(color=cor,width=2.5),marker=dict(size=6)))
 
     if kpi["meta"]>0 and not proj_sel:
-        fig.add_hline(y=kpi["meta"],line_dash="dash",line_color=RED,
+        fig.add_hline(y=kpi["meta"],line_dash="dash",line_color=BLUE2,
                       annotation_text=f"Meta {fmt_card(kpi['meta'])}",
                       annotation_position="right")
 
