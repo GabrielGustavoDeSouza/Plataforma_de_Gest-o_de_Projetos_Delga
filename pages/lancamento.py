@@ -12,8 +12,8 @@ def clean_html(html):
 def hc(html): st.markdown(clean_html(html), unsafe_allow_html=True)
 
 def render(user, **colors):
-    NAVY=colors.get("NAVY","#1C2B4A"); GREEN=colors.get("GREEN","#1A7A3A")
-    AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#C8202E")
+    NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
+    AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#D93B3B")
     TEAL=colors.get("TEAL","#20C997"); SILVER=colors.get("SILVER","#8A9BB0")
 
     ano_atual = datetime.now().year
