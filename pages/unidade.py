@@ -36,7 +36,7 @@ def linha_atrasada(p):
 def render(user, **colors):
     NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
     AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#D93B3B")
-    BLUE=colors.get("BLUE","#1428FF"); BLUE2=colors.get("BLUE2","#3D5CFF")
+    BLUE=colors.get("BLUE","#1B2A9E"); BLUE2=colors.get("BLUE2","#33459E")
     TEAL=colors.get("TEAL","#20C997"); SILVER=colors.get("SILVER","#8A9BB0")
 
     verificar_campeoes()
