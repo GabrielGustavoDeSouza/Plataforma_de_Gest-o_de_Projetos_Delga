@@ -36,6 +36,35 @@ button[data-testid="stSidebarCollapseButton"],
 button[data-testid="stSidebarCollapsedControl"],
 div[data-testid="collapsedControl"],
 [data-testid="stSidebarCollapseButton"]{{display:none!important;}}
+/* Esconde o menu automático de páginas do Streamlit (a pasta se chama
+   "pages/" e ele tenta criar navegação nativa por cima da nossa) */
+[data-testid="stSidebarNav"]{{display:none!important;}}
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"]{{padding-top:8px!important;}}
+/* Todo elemento nativo do Streamlit que usa a cor primária (botão
+   selecionado, tags de multiselect, radio/checkbox) fica azul da marca —
+   não depende do .streamlit/config.toml estar ativo. */
+button[kind="primary"], button[kind="primaryFormSubmit"]{{
+  background:linear-gradient(120deg,{BLUE} 0%,{BLUE2} 100%)!important;
+  border:none!important;color:white!important;}}
+button[kind="primary"] p, button[kind="primaryFormSubmit"] p{{color:white!important;}}
+[data-baseweb="tag"]{{background-color:{BLUE}!important;border-color:{BLUE}!important;}}
+[data-baseweb="tag"] span{{color:white!important;}}
+[data-baseweb="tag"] svg{{fill:white!important;}}
+input[type="radio"],input[type="checkbox"]{{accent-color:{BLUE}!important;}}
+[data-baseweb="radio"] div[aria-checked="true"] svg,
+[data-baseweb="checkbox"] svg{{fill:{BLUE}!important;}}
+[data-testid="stRadio"] input[type="radio"]:checked + div,
+[data-testid="stCheckbox"] input[type="checkbox"]:checked + div{{
+  background-color:{BLUE}!important;border-color:{BLUE}!important;}}
+[data-testid="stRadio"] input[type="radio"]:checked + div > div,
+[data-testid="stCheckbox"] input[type="checkbox"]:checked + div > div{{
+  background-color:{BLUE}!important;}}
+label[data-testid="stRadioOption"][data-selected="true"] > div > div > div{{
+  border-color:{BLUE}!important;}}
+label[data-testid="stRadioOption"][data-selected="true"] > div > div > div > div{{
+  background-color:{BLUE}!important;}}
+[data-testid="stSlider"] div[role="slider"]{{background-color:{BLUE}!important;}}
+[data-testid="stSlider"] .stSliderTrackActive{{background-color:{BLUE}!important;}}
 .plat-header{{background:linear-gradient(120deg,{NAVY} 0%,#151B45 55%,#1B1F5C 100%);
   padding:18px 30px;border-radius:0 0 16px 16px;display:flex;align-items:center;
   gap:18px;margin-bottom:20px;box-shadow:0 4px 20px rgba(11,15,43,.25);
