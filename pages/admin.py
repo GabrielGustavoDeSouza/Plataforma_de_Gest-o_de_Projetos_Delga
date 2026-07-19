@@ -5,7 +5,7 @@ from database import (listar_usuarios, criar_usuario, editar_usuario,
                       listar_projetos, deletar_usuario, PERFIS_LBL)
 
 def render(user, **colors):
-    NAVY=colors.get("NAVY","#1C2B4A"); RED=colors.get("RED","#C8202E")
+    NAVY=colors.get("NAVY","#0B0F2B"); RED=colors.get("RED","#D93B3B")
     if user["perfil"] != "admin":
         st.error("⛔ Acesso restrito a administradores."); return
 
