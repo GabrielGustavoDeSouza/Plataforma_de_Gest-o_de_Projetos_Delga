@@ -8,7 +8,7 @@ from database import (listar_unidades, kpis_unidade, alertas_validacao,
                       del_link, get_todas_metas, get_lancamentos, get_curva_unidade,
                       get_curva_custos, is_extra_dre, get_ultima_obs_custos,
                       normalizar_url, fmt_brl as _fmt_brl, fmt_card,
-                      funil_conversao, get_carry_over,
+                      get_carry_over,
                       TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS, MESES_PT)
 
 def clean_html(html):
@@ -109,43 +109,6 @@ def render(user, **colors):
             hc(f"""<table class="dt"><thead><tr><th>Projeto</th><th>Mês</th>
               <th style="text-align:right;">Valor</th></tr></thead>
               <tbody>{rows_co}</tbody></table>""")
-
-    # Funil + Gauge enxutos, só da unidade selecionada
-    funil_u = funil_conversao(ano_sel, sel)
-    c_f, c_g = st.columns([3,2])
-    with c_f:
-        st.markdown('<div class="sc">', unsafe_allow_html=True)
-        hc(f'<p style="font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;'
-           f'letter-spacing:.7px;border-bottom:2px solid {BLUE};padding-bottom:6px;'
-           f'margin-bottom:8px;display:inline-block;">Funil de Conversão — {sel} {ano_sel}</p>')
-        fig_f = go.Figure(go.Funnel(
-            y=["Meta","Previsto","Validado","Real"],
-            x=[funil_u["meta"], funil_u["previsto"], funil_u["validado"], funil_u["real"]],
-            textposition="inside", texttemplate="%{value:,.0f}<br>(%{percentInitial})",
-            marker=dict(color=[NAVY, BLUE, BLUE2, GREEN]),
-            connector=dict(line=dict(color="#E2E8F0", width=1))))
-        fig_f.update_layout(separators=",.", margin=dict(l=10,r=10,t=10,b=10), height=260,
-                             paper_bgcolor="white", plot_bgcolor="white", font=dict(family="Inter", size=11))
-        st.plotly_chart(fig_f, use_container_width=True, config={"displayModeBar":False})
-        st.markdown('</div>', unsafe_allow_html=True)
-    with c_g:
-        st.markdown('<div class="sc">', unsafe_allow_html=True)
-        hc(f'<p style="font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;'
-           f'letter-spacing:.7px;border-bottom:2px solid {BLUE};padding-bottom:6px;'
-           f'margin-bottom:8px;display:inline-block;">Atingimento da Meta</p>')
-        pct_gauge = min(funil_u["pct_meta"],100) if funil_u["pct_meta"]<999 else 100
-        fig_g = go.Figure(go.Indicator(
-            mode="gauge+number", value=pct_gauge,
-            number={"suffix":"%","font":{"size":26,"color":NAVY},"valueformat":".1f"},
-            gauge={"axis":{"range":[0,100],"tickcolor":SILVER,"tickfont":{"size":8}},
-                   "bar":{"color":BLUE,"thickness":0.28},"bgcolor":"white","borderwidth":0,
-                   "steps":[{"range":[0,40],"color":"#EAF0FB"},
-                            {"range":[40,70],"color":"#FFF6E5"},
-                            {"range":[70,100],"color":"#E6F4EC"}]}))
-        fig_g.update_layout(margin=dict(l=16,r=16,t=10,b=0), height=260,
-                             paper_bgcolor="white", font=dict(family="Inter"))
-        st.plotly_chart(fig_g, use_container_width=True, config={"displayModeBar":False})
-        st.markdown('</div>', unsafe_allow_html=True)
 
     kpi  = kpis_unidade(sel,ano_sel)
     meta = kpi["meta"] or 1
