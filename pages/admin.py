@@ -6,7 +6,7 @@ from database import (listar_usuarios, criar_usuario, editar_usuario,
                       alterar_senha, listar_unidades, criar_unidade,
                       get_todas_metas, set_meta, resetar_projetos_teste,
                       listar_projetos, deletar_usuario,
-                      importar_projetos_lote, normalizar_valor_lista,
+                      importar_projetos_lote, normalizar_valor_lista, lancar_real,
                       TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS, PERFIS_LBL)
 
 def render(user, **colors):
@@ -321,6 +321,7 @@ def render(user, **colors):
                 prev = float(prev) if prev is not None and not (hasattr(pd,"isna") and pd.isna(prev)) else 0.0
             except (ValueError, TypeError):
                 prev = 0.0
+            if prev != prev: prev = 0.0  # NaN nunca é igual a si mesmo
             if prev <= 0: motivo.append("valor previsto zerado")
             valid = normalizar_valor_lista(_get("validacao"), ["OK","NOK","Pendente"]) or "Pendente"
             status = normalizar_valor_lista(_get("status"), STATUS_OPTS)
@@ -356,9 +357,9 @@ def render(user, **colors):
                                        "Compras","Vendas","Corporativo"]
                 mapa_abas_unidade = {}
                 for aba in nomes_abas:
-                    aba_limpa = aba.strip()
-                    if aba_limpa in UNIDADES_CONHECIDAS:
-                        mapa_abas_unidade[aba_limpa] = aba
+                    unid_match = normalizar_valor_lista(aba, UNIDADES_CONHECIDAS)
+                    if unid_match:
+                        mapa_abas_unidade[unid_match] = aba
 
                 modo_delga = len(mapa_abas_unidade) >= 3
                 if modo_delga:
@@ -366,9 +367,38 @@ def render(user, **colors):
                               f"{len(mapa_abas_unidade)} unidade(s) encontrada(s): "
                               f"{', '.join(mapa_abas_unidade.keys())}")
 
+                    mapas_cache = {}  # {n_colunas: {"campos_idx":{chave:idx}, "mes_idx":{idx:(ano,mes)}}}
+                    pendentes_sem_header = []
+
+                    def _processar_aba(unidade, aba, mapa_local, col_mes, df, primeira_linha_dados):
+                        for i,(ridx,row) in enumerate(df.iterrows()):
+                            linha = _linha_de(row, mapa_local, primeira_linha_dados+1+i, unidade_fixa=unidade)
+                            if linha is None: continue
+                            linha["_aba"] = aba
+                            # Linha "Real" fica imediatamente abaixo da linha do
+                            # projeto (planilha vem com 2 linhas por projeto).
+                            # Acha a coluna marcadora "Previsto/Real" olhando a
+                            # própria linha do projeto por essa palavra exata.
+                            real_mensal = {}
+                            row_atual = primeira_linha_dados+i
+                            marcador_col = None
+                            for c in range(df_raw.shape[1]):
+                                if df_raw.iat[row_atual, c] == "Previsto":
+                                    marcador_col = c; break
+                            if marcador_col is not None and row_atual+1 < len(df_raw):
+                                if df_raw.iat[row_atual+1, marcador_col] == "Real":
+                                    for c,(ano_m,mes_m) in col_mes.items():
+                                        v = df_raw.iat[row_atual+1, c]
+                                        if v is not None and not (hasattr(pd,"isna") and pd.isna(v)):
+                                            try: real_mensal[(ano_m,mes_m)] = float(v)
+                                            except (ValueError,TypeError): pass
+                            linha["_real_mensal"] = real_mensal
+                            if "_erro" in linha: linhas_erro.append(linha)
+                            else: linhas_ok.append(linha)
+
+                    # Passo 1: abas com cabeçalho de texto normal
                     for unidade, aba in mapa_abas_unidade.items():
                         df_raw = xls[aba]
-                        # acha a linha de cabeçalho procurando "nome do projeto"
                         header_row = None
                         for r in range(min(len(df_raw), 140)):
                             for c in range(df_raw.shape[1]):
@@ -376,24 +406,51 @@ def render(user, **colors):
                                 if v and "nome do projeto" in _norm(str(v)):
                                     header_row = r; break
                             if header_row is not None: break
-                        if header_row is None: continue
+                        if header_row is None:
+                            pendentes_sem_header.append((unidade, aba, df_raw))
+                            continue
 
                         colunas = [str(v) if v is not None else f"col{c}"
                                   for c,v in enumerate(df_raw.iloc[header_row])]
                         df = df_raw.iloc[header_row+1:].copy()
                         df.columns = colunas
 
-                        mapa_local = {}
+                        mapa_local = {}; campos_idx = {}
                         for chave,label,obrig,aliases in CAMPOS:
                             if chave == "unidade": continue
-                            mapa_local[chave] = _melhor_coluna(colunas, aliases)
+                            melhor = _melhor_coluna(colunas, aliases)
+                            mapa_local[chave] = melhor
+                            if melhor: campos_idx[chave] = colunas.index(melhor)
 
-                        for i,(_,row) in enumerate(df.iterrows()):
-                            linha = _linha_de(row, mapa_local, header_row+2+i, unidade_fixa=unidade)
-                            if linha is None: continue
-                            linha["_aba"] = aba
-                            if "_erro" in linha: linhas_erro.append(linha)
-                            else: linhas_ok.append(linha)
+                        # Colunas de mês (Jan-Dez) — identificadas pelas células de
+                        # data no próprio cabeçalho, não por nome fixo de coluna
+                        # (a posição varia de aba pra aba).
+                        col_mes = {}
+                        for c in range(df_raw.shape[1]):
+                            v = df_raw.iat[header_row, c]
+                            if isinstance(v,(pd.Timestamp,datetime)):
+                                col_mes[c] = (v.year, v.month)
+
+                        mapas_cache[df_raw.shape[1]] = {"campos_idx":campos_idx, "mes_idx":col_mes}
+                        _processar_aba(unidade, aba, mapa_local, col_mes, df, header_row+1)
+
+                    # Passo 2: abas SEM cabeçalho de texto (ex: perdeu a linha de
+                    # título) — reaproveita o mapeamento de outra aba com o
+                    # mesmo número de colunas, assumindo dados logo após os
+                    # bignumbers (linha 3 da planilha).
+                    for unidade, aba, df_raw in pendentes_sem_header:
+                        n_cols = df_raw.shape[1]
+                        cache = mapas_cache.get(n_cols)
+                        if not cache:
+                            st.warning(f"⚠️ Não consegui mapear a aba **{aba}** — não achei cabeçalho "
+                                      f"nem outra aba parecida (mesma qtd. de colunas) pra usar de referência.")
+                            continue
+                        colunas = [f"col{c}" for c in range(n_cols)]
+                        mapa_local = {chave: f"col{idx}" for chave,idx in cache["campos_idx"].items()}
+                        col_mes = cache["mes_idx"]
+                        df = df_raw.iloc[2:].copy()
+                        df.columns = colunas
+                        _processar_aba(unidade, aba, mapa_local, col_mes, df, 2)
 
                     # Metas — aba "Parâmetros", tabela "METAS POR UNIDADE"
                     aba_param = next((a for a in nomes_abas if "parametro" in _norm(a)), None)
@@ -538,16 +595,25 @@ def render(user, **colors):
                         </tr></thead><tbody>{mrows}</tbody></table>""", unsafe_allow_html=True)
 
                 if linhas_ok or metas_linhas:
+                    total_meses_real = sum(len(l.get("_real_mensal") or {}) for l in linhas_ok)
                     st.markdown("---")
                     confirmar_imp = st.checkbox(
-                        f"Confirmo a importação de {len(linhas_ok)} projeto(s) e "
-                        f"{len(metas_linhas)} meta(s).")
+                        f"Confirmo a importação de {len(linhas_ok)} projeto(s), "
+                        f"{len(metas_linhas)} meta(s) e {total_meses_real} lançamento(s) de real mensal.")
                     if st.button("📥 Confirmar Importação", disabled=not confirmar_imp,
                                 type="primary", use_container_width=True):
                         sucesso, erros_imp = importar_projetos_lote(linhas_ok, user["id"])
                         for m in metas_linhas: set_meta(m["unidade"], m["ano"], m["valor"])
-                        st.success(f"✅ {len(sucesso)} projeto(s) importado(s) e "
-                                  f"{len(metas_linhas)} meta(s) atualizada(s).")
+                        n_real = 0
+                        for s in sucesso:
+                            linha_orig = linhas_ok[s["linha"]-1]
+                            for (ano_r,mes_r),val_r in (linha_orig.get("_real_mensal") or {}).items():
+                                lancar_real(s["id"], ano_r, mes_r, val_r,
+                                           "[Importado via Excel]", user["id"])
+                                n_real += 1
+                        st.success(f"✅ {len(sucesso)} projeto(s) importado(s), "
+                                  f"{len(metas_linhas)} meta(s) atualizada(s) e "
+                                  f"{n_real} lançamento(s) de real gravado(s).")
                         if erros_imp:
                             st.error(f"{len(erros_imp)} falharam na gravação: " +
                                     "; ".join(f"{e['nome']} ({e['erro']})" for e in erros_imp))
