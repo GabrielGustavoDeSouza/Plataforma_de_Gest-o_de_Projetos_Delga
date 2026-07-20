@@ -19,6 +19,23 @@ st.set_page_config(page_title="Plataforma Delga", page_icon="🏭",
 NAVY="#0B0F2B"; BLUE="#1B2A9E"; BLUE2="#33459E"; GREEN="#1AA260"
 AMBER="#E8A838"; RED="#D93B3B"; TEAL="#20C997"; SILVER="#8A9BB0"; LIGHT="#F4F6FB"
 
+# Cor fixa por unidade — mesma cor em todo gráfico, sempre, independente de
+# filtro ou ordem (ancorada no padrão já usado: Ferraz azul, Diadema verde,
+# Jarinu laranja, São Leopoldo roxo).
+CORES_UNIDADE = {
+    "Ferraz":       "#4C7EF3",
+    "Diadema":      "#3CB371",
+    "Jarinu":       "#F5A623",
+    "São Leopoldo": "#9B3FC4",
+    "Anchieta":     "#20C997",
+    "Compras":      "#E8577A",
+    "Vendas":       "#E8C93A",
+    "Corporativo":  "#6C7A96",
+}
+def cor_unidade(nome, i=0):
+    fallback = ["#4C7EF3","#3CB371","#F5A623","#9B3FC4","#20C997","#E8577A","#E8C93A","#6C7A96"]
+    return CORES_UNIDADE.get(nome, fallback[i % len(fallback)])
+
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -219,14 +236,21 @@ def render_carry_over(ano_ref, unidade_nome=None):
 def build_funnel(dados):
     labels  = ["Meta do Grupo","Previsto (Unidade)","Validado por Custos","Real Lançado"]
     valores = [dados["meta"], dados["previsto"], dados["validado"], dados["real"]]
+    cores   = ["#0B0F2B", "#1B2A9E", "#3D5CFF", "#1AA260"]
     fig = go.Figure(go.Funnel(
-        y=labels, x=valores, textposition="inside",
-        texttemplate="%{value:,.0f}<br>(%{percentInitial})",
-        marker=dict(color=[NAVY, BLUE, BLUE2, GREEN]),
-        connector=dict(line=dict(color="#E2E8F0", width=1))))
-    fig.update_layout(separators=",.", margin=dict(l=10,r=10,t=10,b=10), height=320,
-                       paper_bgcolor="white", plot_bgcolor="white",
-                       font=dict(family="Inter", size=12))
+        y=labels, x=valores,
+        textposition="inside",
+        textinfo="value+percent initial",
+        texttemplate="<b>%{value:,.0f}</b><br>%{percentInitial}",
+        textfont=dict(color="white", size=13, family="Inter"),
+        marker=dict(color=cores, line=dict(color="white", width=2)),
+        connector=dict(line=dict(color="#D7DDE8", width=1.4, dash="dot")),
+        opacity=0.96))
+    fig.update_layout(
+        separators=",.", funnelgap=0.045,
+        margin=dict(l=10,r=10,t=14,b=10), height=340,
+        paper_bgcolor="white", plot_bgcolor="white",
+        font=dict(family="Inter", size=13, color=NAVY))
     return fig
 
 def build_gauge(pct):
@@ -247,10 +271,10 @@ def build_gauge(pct):
 def build_donut(dados):
     labels  = [d["unidade"] for d in dados]
     valores = [d["valor"] for d in dados]
-    paleta  = [NAVY, BLUE, BLUE2, TEAL, "#6B7FD7", "#8A9BB0", "#B8C4E0", "#4A5FC1"]
+    cores   = [cor_unidade(nome, i) for i,nome in enumerate(labels)]
     fig = go.Figure(go.Pie(
         labels=labels, values=valores, hole=0.62, sort=False,
-        marker=dict(colors=paleta[:len(labels)], line=dict(color="white", width=2)),
+        marker=dict(colors=cores, line=dict(color="white", width=2)),
         textinfo="none",
         hovertemplate="%{label}: R$ %{value:,.0f} (%{percent})<extra></extra>"))
     fig.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=300,
@@ -459,7 +483,7 @@ if pagina == "🏠 Dashboard Global":
     if f_st:  pf=[p for p in pf if p["status"] in f_st]
     if f_nm:  pf=[p for p in pf if f_nm.lower() in p["nome"].lower()]
     ord_map={"Unidade":lambda p:p["unidade_nome"],
-             "Maior Previsto":lambda p:-(p["previsto_custos"] if p["previsto_custos"]>0 else p["previsto_unidade"]),
+             "Maior Previsto":lambda p:-((p["previsto_custos"] or 0) if (p["previsto_custos"] or 0)>0 else (p["previsto_unidade"] or 0)),
              "Atrasados primeiro":lambda p:(0 if linha_atrasada(p) else 1)}
     pf=sorted(pf,key=ord_map.get(f_ord,lambda p:p["unidade_nome"]))
 
