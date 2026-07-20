@@ -171,6 +171,95 @@ def importar_projetos_lote(linhas, criado_por_id):
             erros.append({"linha": i, "nome": l.get("nome","?"), "erro": str(e)})
     return sucesso, erros
 
+def exportar_backup_completo():
+    """Gera o backup completo (projetos + lançamentos + metas) em listas de
+    dicts prontas pra virar planilha. Formato que a própria plataforma sabe
+    reler 100%, sem ambiguidade — pensado pra 'zerei hoje, recupero amanhã'."""
+    projetos = listar_projetos(incluir_campeao=True)
+    linhas_proj = []
+    for p in projetos:
+        linhas_proj.append({
+            "Unidade": p["unidade_nome"], "Tipo": p["tipo"], "VA/GGF": p.get("va_ggf") or "",
+            "Nome do Projeto": p["nome"], "Descrição": p.get("descricao") or "",
+            "Responsável": p.get("responsavel") or "",
+            "Data Início": str(p.get("inicio") or ""), "Data Fim": str(p.get("termino") or ""),
+            "Valor Previsto": p.get("previsto_unidade") or 0,
+            "Mês Primeiro Retorno": str(p.get("mes_primeiro_retorno") or ""),
+            "Validação": p.get("validador_ok") or "Pendente",
+            "Valor Calculado Custos": p.get("previsto_custos") or 0,
+            "Saving Validado": p.get("saving_validado") or 0,
+            "Status": p.get("status") or "",
+            "Atividade Atual": p.get("atividade_atual") or "",
+            "Responsável Atividade": p.get("onde_parado") or "",
+            "Previsão Conclusão": p.get("data_conclusao_ativ") or "",
+            "Observações": p.get("obs") or "",
+        })
+    linhas_lanc = []
+    for p in projetos:
+        for l in get_lancamentos(proj_id=p["id"]):
+            linhas_lanc.append({
+                "Unidade": p["unidade_nome"], "Nome do Projeto": p["nome"],
+                "Ano": l["ano"], "Mês": l["mes"], "Valor Real": l["valor_real"] or 0,
+                "Observação": l.get("observacao") or "",
+            })
+    linhas_metas = []
+    for u in listar_unidades(so_ativas=False):
+        for ano in range(2025,2032):
+            m = get_meta(u["nome"], ano)
+            if m and m > 0:
+                linhas_metas.append({"Unidade": u["nome"], "Ano": ano, "Valor da Meta": m})
+    return linhas_proj, linhas_lanc, linhas_metas
+
+def restaurar_backup_completo(linhas_proj, linhas_lanc, linhas_metas, user_id):
+    """Apaga TODOS os projetos/lançamentos/metas atuais e recarrega a partir
+    de um backup exportado por exportar_backup_completo. Operação destrutiva
+    — a UI precisa confirmar antes de chamar isso."""
+    conn = get_conn()
+    conn.execute("DELETE FROM projetos")
+    conn.execute("DELETE FROM metas")
+    conn.commit(); conn.close()
+
+    mapa_id = {}  # (unidade,nome) -> novo id
+    erros = []
+    for l in linhas_proj:
+        try:
+            pid = criar_projeto(l["Unidade"], {
+                "nome": l["Nome do Projeto"], "tipo": l["Tipo"], "va_ggf": l.get("VA/GGF",""),
+                "descricao": l.get("Descrição",""), "responsavel": l.get("Responsável",""),
+                "inicio": l.get("Data Início",""), "termino": l.get("Data Fim",""),
+                "mes_primeiro_retorno": l.get("Mês Primeiro Retorno") or None,
+                "previsto_unidade": l.get("Valor Previsto",0),
+                "status": l.get("Status") or "⏳ Em Execução",
+                "atividade_atual": l.get("Atividade Atual",""),
+                "onde_parado": l.get("Responsável Atividade",""),
+                "data_conclusao_ativ": l.get("Previsão Conclusão",""),
+                "obs": l.get("Observações",""),
+                "check_a3": 1, "check_memoria": 1, "check_formalizado": 1,
+            }, user_id)
+            atualizar_projeto(pid, {
+                "validador_ok": l.get("Validação") or "Pendente",
+                "previsto_custos": l.get("Valor Calculado Custos",0),
+                "saving_validado": l.get("Saving Validado",0),
+            }, user_id)
+            mapa_id[(l["Unidade"], l["Nome do Projeto"])] = pid
+        except Exception as e:
+            erros.append({"nome": l.get("Nome do Projeto","?"), "erro": str(e)})
+
+    n_lanc = 0
+    for l in linhas_lanc:
+        pid = mapa_id.get((l["Unidade"], l["Nome do Projeto"]))
+        if not pid: continue
+        try:
+            lancar_real(pid, int(l["Ano"]), int(l["Mês"]), l.get("Valor Real",0),
+                       l.get("Observação",""), user_id)
+            n_lanc += 1
+        except Exception: pass
+
+    for m in linhas_metas:
+        set_meta(m["Unidade"], int(m["Ano"]), m["Valor da Meta"])
+
+    return len(mapa_id), n_lanc, len(linhas_metas), erros
+
 def normalizar_url(url):
     """Garante que o link tenha esquema (https://), senão o navegador
     interpreta como caminho relativo e abre a própria página do app."""
