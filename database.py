@@ -113,17 +113,29 @@ def normalizar_valor_lista(valor, opcoes):
             return op
     return None
 
-def anualizar_valor_custos(valor_bruto, mes_primeiro_retorno_str):
-    """Custos normalmente calcula o saving 'do primeiro ganho até dezembro',
-    não os 12 meses cheios que o sistema espera para ratear. Esta função
-    reverte essa conta: valor_mensal x 12 = valor anualizado."""
+def anualizar_valor_custos(valor_bruto, mes_primeiro_retorno_str, ano_referencia=None):
+    """Custos normalmente calcula o saving 'do primeiro ganho até dezembro
+    DO ANO CORRENTE', não os 12 meses cheios que o sistema espera para
+    ratear. Esta função reverte essa conta: valor_mensal x 12 = valor
+    anualizado — mas SÓ quando o primeiro retorno é do ano de referência;
+    projetos com retorno em ano passado ou futuro usam o valor como está,
+    pois a premissa 'até dezembro deste ano' não se aplica a eles."""
+    ano_referencia = ano_referencia or datetime.now().year
+    # NaN (célula vazia lida via pandas) é "verdadeiro" em Python, então
+    # precisa de checagem própria — sem isso o cálculo abaixo produz NaN,
+    # que o SQLite grava como NULL silenciosamente.
+    if valor_bruto is None or valor_bruto != valor_bruto:
+        valor_bruto = 0
     try:
         dt = datetime.strptime(str(mes_primeiro_retorno_str)[:7], "%Y-%m")
     except Exception:
         return None
+    if not valor_bruto: return 0.0
+    if dt.year != ano_referencia:
+        try: return round(float(valor_bruto), 2)
+        except (ValueError, TypeError): return None
     meses_restantes = 13 - dt.month
     if meses_restantes <= 0 or meses_restantes > 12: return None
-    if not valor_bruto: return 0.0
     try:
         return round(float(valor_bruto) / meses_restantes * 12, 2)
     except (ValueError, TypeError):
@@ -385,7 +397,7 @@ def get_curva_unidade(proj_id):
     """Curva mensal usando previsto_unidade."""
     p = get_projeto(proj_id)
     if not p or not p.get("mes_primeiro_retorno"): return {}
-    valor = p["previsto_unidade"]
+    valor = p.get("previsto_unidade") or 0
     if valor<=0: return {}
     mensal = valor/12
     try: mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m")
@@ -400,8 +412,10 @@ def get_curva_unidade(proj_id):
 def get_curva_custos(proj_id):
     """Curva mensal usando previsto_custos."""
     p = get_projeto(proj_id)
-    if not p or not p.get("mes_primeiro_retorno") or not p["previsto_custos"]>0: return {}
-    mensal = p["previsto_custos"]/12
+    if not p or not p.get("mes_primeiro_retorno"): return {}
+    valor = p.get("previsto_custos") or 0
+    if valor<=0: return {}
+    mensal = valor/12
     try: mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m")
     except: return {}
     curva = {}
@@ -416,8 +430,8 @@ def get_curva_saving(proj_id):
     rateia em 12 meses a partir do mês de primeiro retorno."""
     p = get_projeto(proj_id)
     if not p or not p.get("mes_primeiro_retorno"): return {}
-    valor = p.get("saving_validado", 0)
-    if not valor or valor <= 0: return {}
+    valor = p.get("saving_validado") or 0
+    if valor <= 0: return {}
     mensal = valor/12
     try: mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m")
     except: return {}
@@ -432,7 +446,7 @@ def get_previsto_curva(proj_id):
     """Usa custos se disponível, senão unidade."""
     p = get_projeto(proj_id)
     if not p: return {}
-    if p["previsto_custos"]>0: return get_curva_custos(proj_id)
+    if (p.get("previsto_custos") or 0)>0: return get_curva_custos(proj_id)
     return get_curva_unidade(proj_id)
 
 def alertas_validacao(unidade_nome=None):
@@ -510,10 +524,12 @@ def kpis_unidade(unidade_nome, ano):
         curva_cust = get_curva_custos(p["id"])
 
         if extra:
-            # Extra DRE: soma frações dos meses JÁ PASSADOS (inclusive mês atual)
-            for (y,m),v in curva_uni.items():
-                if y==ano and date(y,m,1) <= date(hoje.year,hoje.month,1):
-                    total_extra += v
+            # Extra DRE: soma do ano cheio (previsto da curva), e entra também
+            # no Previsto total da unidade — só fica de fora de Validado/Real,
+            # que são exclusivos de projetos DRE.
+            extra_ano = sum(v for (y,m),v in curva_uni.items() if y==ano)
+            total_extra    += extra_ano
+            total_prev_uni += extra_ano
         else:
             for mes in range(1,13):
                 vu = curva_uni.get((ano,mes),0)
@@ -560,11 +576,12 @@ def funil_conversao(ano, unidade_nome=None):
     projetos = listar_projetos(unidade_nome)
     previsto = validado = 0.0
     for p in projetos:
-        if is_extra_dre(p["tipo"]): continue
         curva = get_curva_unidade(p["id"])
-        previsto += sum(v for (y,m),v in curva.items() if y==ano)
-        curva_s = get_curva_saving(p["id"])
-        validado += sum(v for (y,m),v in curva_s.items() if y==ano)
+        ano_total = sum(v for (y,m),v in curva.items() if y==ano)
+        previsto += ano_total
+        if not is_extra_dre(p["tipo"]):
+            curva_s = get_curva_saving(p["id"])
+            validado += sum(v for (y,m),v in curva_s.items() if y==ano)
 
     real = 0.0
     for l in get_lancamentos(unidade_nome=unidade_nome, ano=ano):
