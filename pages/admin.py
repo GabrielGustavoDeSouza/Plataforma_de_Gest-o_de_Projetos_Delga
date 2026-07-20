@@ -292,7 +292,7 @@ def render(user, **colors):
                      ["data fim","fim","termino","data termino","dt fim","conclusao","data conclusao","encerramento"]),
                     ("previsto_unidade","Valor Previsto",True,
                      ["valor previsto","previsto","valor estimado","estimado"]),
-                    ("mes_primeiro_retorno","Mês Primeiro Retorno",True,
+                    ("mes_primeiro_retorno","Mês Primeiro Retorno",False,
                      ["mes primeiro retorno","mes do primeiro retorno","ganho a partir de","primeiro retorno",
                       "1o retorno","1 retorno","mes retorno","data retorno","retorno previsto"]),
                     ("validacao","Validação",False,
@@ -362,7 +362,8 @@ def render(user, **colors):
                         va = normalizar_valor_lista(_get(row,"va_ggf"), VA_GGF_OPTS)
                         if not va: va = "VA"
                         mpr = _parse_mes(_get(row,"mes_primeiro_retorno"))
-                        if not mpr: motivo.append("mês primeiro retorno inválido")
+                        # Sem data de 1º retorno: projeto entra mesmo assim (ex: já
+                        # concluído), só fica sem curva mensal distribuída.
                         prev = _get(row,"previsto_unidade")
                         prev = float(prev) if prev is not None and not pd.isna(prev) else 0.0
                         if prev<=0: motivo.append("valor previsto zerado")
