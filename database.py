@@ -124,7 +124,10 @@ def anualizar_valor_custos(valor_bruto, mes_primeiro_retorno_str):
     meses_restantes = 13 - dt.month
     if meses_restantes <= 0 or meses_restantes > 12: return None
     if not valor_bruto: return 0.0
-    return round(float(valor_bruto) / meses_restantes * 12, 2)
+    try:
+        return round(float(valor_bruto) / meses_restantes * 12, 2)
+    except (ValueError, TypeError):
+        return None
 
 def importar_projetos_lote(linhas, criado_por_id):
     """Importa uma lista de dicts (uma linha de planilha cada) como projetos.
