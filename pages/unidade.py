@@ -6,7 +6,7 @@ from database import (listar_unidades, kpis_unidade, alertas_validacao,
                       alertas_lancamento, verificar_campeoes, listar_projetos,
                       atualizar_projeto, deletar_projeto, get_links, add_link,
                       del_link, get_todas_metas, get_lancamentos, get_curva_unidade,
-                      get_curva_custos, is_extra_dre, get_ultima_obs_custos,
+                      get_curva_custos, is_extra_dre, get_ultima_obs_custos, get_curva_saving,
                       normalizar_url, fmt_brl as _fmt_brl, fmt_card,
                       get_carry_over,
                       TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS, MESES_PT)
@@ -33,6 +33,34 @@ def linha_atrasada(p):
     if not t or t in ("None","nan",""): return False
     try: return date(int(t[:4]),int(t[5:7]),28) < date.today()
     except: return False
+
+def kpi_de_projetos(projs, ano_sel):
+    """Recalcula os bignumbers (Previsto/Validado/Real/Extra DRE) restritos a
+    um subconjunto de projetos — usado quando o filtro 'Projetos' está ativo,
+    pra tudo (cartões, gráfico) refletir só o que foi selecionado."""
+    prev_uni_mes=[0.0]*12; prev_cust_mes=[0.0]*12; real_mes=[0.0]*12
+    total_prev=total_validado=total_extra=0.0
+    for p in projs:
+        extra = is_extra_dre(p["tipo"])
+        cu = get_curva_unidade(p["id"]); cc = get_curva_custos(p["id"])
+        if extra:
+            extra_ano = sum(v for (y,m),v in cu.items() if y==ano_sel)
+            total_extra += extra_ano
+            total_prev  += extra_ano
+        else:
+            for mes in range(1,13):
+                vu=cu.get((ano_sel,mes),0); vc=cc.get((ano_sel,mes),0)
+                prev_uni_mes[mes-1]+=vu; prev_cust_mes[mes-1]+=vc
+                total_prev += vu
+            cs = get_curva_saving(p["id"])
+            total_validado += sum(v for (y,m),v in cs.items() if y==ano_sel)
+        if not extra:
+            for l in get_lancamentos(proj_id=p["id"], ano=ano_sel):
+                real_mes[l["mes"]-1] += l["valor_real"]
+    return {"n_projetos":len(projs), "previsto":total_prev, "validado":total_validado,
+            "real":sum(real_mes), "extra_dre":total_extra,
+            "prev_mensal_uni":prev_uni_mes, "prev_mensal_custos":prev_cust_mes,
+            "real_mensal":real_mes}
 
 def render(user, **colors):
     NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
@@ -110,22 +138,34 @@ def render(user, **colors):
               <th style="text-align:right;">Valor</th></tr></thead>
               <tbody>{rows_co}</tbody></table>""")
 
-    kpi  = kpis_unidade(sel,ano_sel)
-    meta = kpi["meta"] or 1
-    pct  = kpi["real"]/meta*100 if kpi["meta"]>0 else 0
+    projetos_uni = listar_projetos(sel)
+    nomes_proj = [f"#{p['id']} — {p['nome'][:28]}" for p in projetos_uni]
+    proj_map   = {f"#{p['id']} — {p['nome'][:28]}": p for p in projetos_uni}
+    proj_sel = st.multiselect("Filtrar por projeto (vazio = unidade inteira):", nomes_proj,
+                              default=[], key="gr_projs", placeholder="Todos os projetos")
+
+    kpi_unidade_full = kpis_unidade(sel, ano_sel)
+    meta_raw = kpi_unidade_full["meta"] or 0
+    meta = meta_raw or 1
+    kpi  = kpi_de_projetos([proj_map[np] for np in proj_sel], ano_sel) if proj_sel else kpi_unidade_full
+    pct  = kpi["real"]/meta*100 if meta_raw>0 else 0
     pct_c= GREEN if pct>=60 else (AMBER if pct>=30 else RED)
+
+    if proj_sel:
+        st.caption(f"🔎 Mostrando {len(proj_sel)} projeto(s) selecionado(s) — cartões, gráfico e "
+                  f"lista abaixo refletem só esse filtro. Meta permanece a da unidade inteira.")
 
     # ── KPI Cards ─────────────────────────────────────────────────────────────
     hc(f"""
 <div class="kpi-grid">
   <div class="kpi-card">
     <div class="kpi-l">Meta {ano_sel}</div>
-    <div class="kpi-v">{fmt_card(kpi['meta'])}</div>
+    <div class="kpi-v">{fmt_card(meta_raw)}</div>
   </div>
   <div class="kpi-card amber">
     <div class="kpi-l">Previsto (Unidade)</div>
     <div class="kpi-v">{fmt_card(kpi['previsto'])}</div>
-    <div class="kpi-d">{kpi['n_projetos']} projetos DRE</div>
+    <div class="kpi-d">{kpi['n_projetos']} projetos{' selecionado(s)' if proj_sel else ' DRE'}</div>
   </div>
   <div class="kpi-card" style="border-left-color:{TEAL};">
     <div class="kpi-l">Validado por Custos</div>
@@ -143,7 +183,6 @@ def render(user, **colors):
   <div class="kpi-card" style="border-left-color:#9B59B6;">
     <div class="kpi-l">Extra DRE</div>
     <div class="kpi-v" style="color:#9B59B6;">{fmt_card(kpi['extra_dre'])}</div>
-    <div class="kpi-d">Acumulado até hoje</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-l">Iniciativas</div>
@@ -161,7 +200,6 @@ def render(user, **colors):
 </div>""")
 
     # ── Alertas colapsáveis (dois blocos independentes) ─────────────────────────
-    projetos_uni = listar_projetos(sel)
     pend_valid   = alertas_validacao(sel)
     pend_lanc    = alertas_lancamento(sel)
 
@@ -185,21 +223,12 @@ def render(user, **colors):
                f'</tr></thead><tbody>{rows_a}</tbody></table>')
 
     # ── Gráfico com 4 séries ──────────────────────────────────────────────────
-    nomes_proj = [f"#{p['id']} — {p['nome'][:28]}" for p in projetos_uni]
-    proj_map   = {f"#{p['id']} — {p['nome'][:28]}": p for p in projetos_uni}
-
-    c1,c2=st.columns([3,4])
-    with c1:
-        series_opts=["Previsto Unidade","Calculado Custos","Real Mensal",
-                     "Acum. Previsto Uni","Acum. Calculado","Acum. Real","Projeção Meta"]
-        series_sel=st.multiselect("Séries:",series_opts,
-                                   default=["Previsto Unidade","Real Mensal",
-                                            "Acum. Previsto Uni","Acum. Real","Projeção Meta"],
-                                   key="gr_series")
-    with c2:
-        proj_sel=st.multiselect("Projetos (vazio=todos):",nomes_proj,
-                                 default=[],key="gr_projs",
-                                 placeholder="Todos os projetos")
+    series_opts=["Previsto Unidade","Calculado Custos","Real Mensal",
+                 "Acum. Previsto Uni","Acum. Calculado","Acum. Real","Projeção Meta"]
+    series_sel=st.multiselect("Séries:",series_opts,
+                               default=["Previsto Unidade","Real Mensal",
+                                        "Acum. Previsto Uni","Acum. Real","Projeção Meta"],
+                               key="gr_series")
 
     # Calcular dados
     if proj_sel:
@@ -231,8 +260,8 @@ def render(user, **colors):
     proj_meta_m=[None]*12
     real_acum_ate_agora=are[mes_atual-1] if mes_atual>0 else 0
     meses_restantes=12-mes_atual
-    if meses_restantes>0 and kpi["meta"]>0:
-        necessario=(kpi["meta"]-real_acum_ate_agora)/meses_restantes
+    if meses_restantes>0 and meta_raw>0 and not proj_sel:
+        necessario=(meta_raw-real_acum_ate_agora)/meses_restantes
         for m in range(mes_atual,12):
             proj_meta_m[m]=necessario
 
@@ -274,8 +303,8 @@ def render(user, **colors):
             fig.add_trace(go.Scatter(x=MESES_PT,y=d,name=s,mode="lines+markers",
                 line=dict(color=cor,width=2.5),marker=dict(size=6)))
 
-    if kpi["meta"]>0 and not proj_sel:
-        fig.add_hline(y=kpi["meta"],line_dash="dash",line_color=BLUE2,
+    if meta_raw>0 and not proj_sel:
+        fig.add_hline(y=meta_raw,line_dash="dash",line_color=BLUE2,
                       annotation_text=f"Meta {fmt_card(kpi['meta'])}",
                       annotation_position="right")
 
@@ -301,18 +330,27 @@ def render(user, **colors):
        f'letter-spacing:.7px;border-bottom:2px solid {BLUE};padding-bottom:6px;'
        f'margin:20px 0 14px;display:inline-block;">Projetos da Unidade</p>')
 
+    opcoes_status = list({p["status"] for p in projetos_uni}) + ["🔴 Atraso"]
     c1,c2,c3=st.columns([2,2,4])
-    with c1: f_st=st.multiselect("Status:",list({p["status"] for p in projetos_uni}),default=[],placeholder="Todos",key="ud_fst")
+    with c1: f_st=st.multiselect("Status:",opcoes_status,default=[],placeholder="Todos",key="ud_fst")
     with c2: f_ti=st.multiselect("Tipo:",list({p["tipo"] for p in projetos_uni}),default=[],placeholder="Todos",key="ud_fti")
     with c3: f_nm=st.text_input("🔍 Buscar",placeholder="Nome...",key="ud_fn")
 
-    pf=projetos_uni[:]
-    if f_st: pf=[p for p in pf if p["status"] in f_st]
+    pf=[proj_map[np] for np in proj_sel] if proj_sel else projetos_uni[:]
+    if f_st:
+        quer_atraso = "🔴 Atraso" in f_st
+        outros_status = [s for s in f_st if s != "🔴 Atraso"]
+        pf = [p for p in pf if (quer_atraso and linha_atrasada(p))
+                              or (outros_status and p["status"] in outros_status)]
     if f_ti: pf=[p for p in pf if p["tipo"] in f_ti]
     if f_nm: pf=[p for p in pf if f_nm.lower() in p["nome"].lower()]
 
-    atrasados=sum(1 for p in pf if linha_atrasada(p))
-    if atrasados: st.error(f"🔴 {atrasados} projeto(s) com término vencido.")
+    atrasados=sum(1 for p in ([proj_map[np] for np in proj_sel] if proj_sel else projetos_uni) if linha_atrasada(p))
+    if atrasados and "🔴 Atraso" not in f_st:
+        def _filtrar_atraso(): st.session_state["ud_fst"] = ["🔴 Atraso"]
+        st.button(f"🔴 {atrasados} projeto(s) com término vencido — clique pra filtrar",
+                 use_container_width=True, on_click=_filtrar_atraso)
+
     st.caption(f"{len(pf)} de {len(projetos_uni)} projetos")
 
     sc_map={"✓ Concluído":GREEN,"⏳ Em Execução":AMBER,"📝 Não iniciado":SILVER,"⚠️ Suspenso":RED}
@@ -403,11 +441,11 @@ def render(user, **colors):
                         c1,c2=st.columns(2)
                         with c1:
                             val_ok=st.selectbox("Validador",["Pendente","OK","NOK"],index=["Pendente","OK","NOK"].index(p.get("validador_ok","Pendente")),key=f"vk_{p['id']}")
-                            saving=st.number_input("Saving Validado (R$)",value=float(p.get("saving_validado",0)),step=1000.0,format="%.2f",key=f"sv_{p['id']}")
+                            saving=st.number_input("Saving Validado (R$)",value=float(p.get("saving_validado") or 0),step=1000.0,format="%.2f",key=f"sv_{p['id']}")
                         with c2:
-                            prev_c=st.number_input("Valor Calculado Custos (R$)",value=float(p.get("previsto_custos",0)),step=1000.0,format="%.2f",key=f"pc_{p['id']}")
+                            prev_c=st.number_input("Valor Calculado Custos (R$)",value=float(p.get("previsto_custos") or 0),step=1000.0,format="%.2f",key=f"pc_{p['id']}")
                     else:
-                        val_ok=p.get("validador_ok","Pendente"); saving=p.get("saving_validado",0); prev_c=p.get("previsto_custos",0)
+                        val_ok=p.get("validador_ok","Pendente"); saving=p.get("saving_validado") or 0; prev_c=p.get("previsto_custos") or 0
                         vok_color=GREEN if val_ok=="OK" else (RED if val_ok=="NOK" else AMBER)
                         hc(f'<div style="background:#F4F6FB;border-radius:8px;padding:10px 14px;font-size:11px;display:flex;gap:24px;"><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Validador</span><br><b style="color:{vok_color};">{val_ok}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Calc. Custos</span><br><b>{fmt_brl(prev_c)}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Saving</span><br><b style="color:#20C997;">{fmt_brl(saving)}</b></div></div>')
                     col_s,col_d=st.columns([4,1])
