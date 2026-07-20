@@ -379,6 +379,26 @@ def render(user, **colors):
         ult_obs_html = (f'<div style="margin-top:5px;font-size:10px;color:#7A8394;">'
                          f'💬 {_html.escape(ult_obs["texto"])}</div>') if ult_obs else ""
 
+        # % do previsto que cai no ano selecionado (some com o ano, muda com o navegador de ano)
+        curva_p = get_curva_unidade(p["id"])
+        val_ano_p = sum(v for (y,m),v in curva_p.items() if y==ano_sel)
+        pct_ano_html = (f'<div style="font-size:9px;color:{SILVER};margin-top:1px;">'
+                        f'{(val_ano_p/prev_val*100):.0f}% previsto p/ {ano_sel}</div>'
+                        if prev_val>0 and curva_p else '')
+
+        # Atividade atual — só pra projetos não concluídos, sempre com fallback
+        if not concluido:
+            ativ_txt = p.get('atividade_atual') or 'Não informado'
+            resp_ativ_txt = p.get('onde_parado') or 'Não informado'
+            dt_ativ_txt = str(p.get('data_conclusao_ativ') or '').strip() or 'Não informado'
+            atividade_html = (f'<div style="margin-top:6px;font-size:10px;color:#555;'
+                              f'background:#F9F9F9;padding:5px 10px;border-radius:6px;">'
+                              f'📌 <b>Atividade atual:</b> {_html.escape(ativ_txt)} · '
+                              f'<b>Resp.:</b> {_html.escape(resp_ativ_txt)} · '
+                              f'<b>Previsão de conclusão:</b> {_html.escape(dt_ativ_txt)}</div>')
+        else:
+            atividade_html = ''
+
         hc(f"""
 <div style="border-left:4px solid {border_c};background:white;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:2px;box-shadow:0 1px 4px rgba(28,43,74,.06);">
 <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
@@ -390,14 +410,14 @@ def render(user, **colors):
 {ult_obs_html}
 </div>
 <div style="display:flex;gap:16px;align-items:center;flex-shrink:0;">
-<div style="text-align:center;"><div style="font-size:9px;color:{SILVER};text-transform:uppercase;letter-spacing:.4px;">Prev. Unidade</div><div style="font-size:12px;font-weight:700;color:{AMBER};">{fmt_brl(prev_val)}</div></div>
+<div style="text-align:center;"><div style="font-size:9px;color:{SILVER};text-transform:uppercase;letter-spacing:.4px;">Prev. Unidade</div><div style="font-size:12px;font-weight:700;color:{AMBER};">{fmt_brl(prev_val)}</div>{pct_ano_html}</div>
 {'<div style="text-align:center;"><div style="font-size:9px;color:'+SILVER+';text-transform:uppercase;letter-spacing:.4px;">Calc. Custos</div><div style="font-size:12px;font-weight:700;color:#F39C12;">'+fmt_brl(cust_val)+'</div></div>' if not extra else '<div style="text-align:center;"><div style="font-size:9px;color:#9B59B6;text-transform:uppercase;letter-spacing:.4px;">Extra DRE</div><div style="font-size:12px;font-weight:700;color:#9B59B6;">'+fmt_brl(prev_val)+'</div></div>'}
 {'<div style="text-align:center;"><div style="font-size:9px;color:'+SILVER+';text-transform:uppercase;letter-spacing:.4px;">Real Acum.</div><div style="font-size:12px;font-weight:700;color:'+GREEN+';">'+fmt_brl(real_acum)+'</div></div>' if not extra else ''}
 <div style="text-align:center;"><div style="font-size:9px;color:{SILVER};text-transform:uppercase;letter-spacing:.4px;">Status</div><div style="font-size:11px;font-weight:600;color:{sc};">{p['status']}</div></div>
 <div style="text-align:center;"><div style="font-size:9px;color:{SILVER};text-transform:uppercase;letter-spacing:.4px;">A3·Mem·Form</div><div style="font-size:13px;">{chk}</div></div>
 </div>
 </div>
-{f'<div style="margin-top:6px;font-size:10px;color:#555;background:#F9F9F9;padding:5px 10px;border-radius:6px;">📌 <b>Atribuição:</b> {p["atividade_atual"]}{(" — "+p["onde_parado"]) if p.get("onde_parado") else ""}</div>' if p.get('atividade_atual') else ''}
+{atividade_html}
 </div>""")
 
         if pode_ed:
