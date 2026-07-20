@@ -7,6 +7,7 @@ from database import (listar_usuarios, criar_usuario, editar_usuario,
                       get_todas_metas, set_meta, resetar_projetos_teste,
                       listar_projetos, deletar_usuario,
                       importar_projetos_lote, normalizar_valor_lista, lancar_real,
+                      exportar_backup_completo, restaurar_backup_completo,
                       TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS, PERFIS_LBL)
 
 def render(user, **colors):
@@ -15,9 +16,9 @@ def render(user, **colors):
         st.error("⛔ Acesso restrito a administradores."); return
 
     st.markdown('<span class="st">Administração</span>', unsafe_allow_html=True)
-    tab_users, tab_editar, tab_metas, tab_unid, tab_senha, tab_import, tab_reset = st.tabs([
+    tab_users, tab_editar, tab_metas, tab_unid, tab_senha, tab_backup, tab_import, tab_reset = st.tabs([
         "👥 Usuários","✏️ Editar Usuário","🎯 Metas","🏭 Unidades","🔑 Senhas",
-        "📥 Importar Excel","🗑️ Reset"])
+        "💾 Backup","📥 Importar Excel","🗑️ Reset"])
 
     with tab_users:
         usuarios = listar_usuarios()
@@ -152,6 +153,70 @@ def render(user, **colors):
                 if nova!=conf: st.error("Senhas não conferem.")
                 elif len(nova)<6: st.error("Mínimo 6 caracteres.")
                 else: alterar_senha(u_s["id"],nova); st.success(f"✅ Senha alterada!")
+
+    with tab_backup:
+        st.markdown("**💾 Backup Completo da Plataforma**")
+        st.caption(
+            "Esse é o fluxo recomendado pra manter tudo seguro enquanto o banco ainda não é "
+            "persistente: baixe o backup periodicamente. Se a base zerar, suba o último "
+            "backup baixado e a plataforma volta pro ponto exato de onde parou — inclusive "
+            "os valores de real que Custos já lançou.")
+
+        st.markdown("##### ⬇️ Baixar backup")
+        linhas_proj, linhas_lanc, linhas_metas = exportar_backup_completo()
+        st.caption(f"Agora mesmo: {len(linhas_proj)} projeto(s), {len(linhas_lanc)} "
+                  f"lançamento(s) de real, {len(linhas_metas)} meta(s) cadastrada(s).")
+
+        def _gerar_backup_xlsx():
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                pd.DataFrame(linhas_proj).to_excel(writer, sheet_name="Projetos", index=False)
+                pd.DataFrame(linhas_lanc).to_excel(writer, sheet_name="Lancamentos", index=False)
+                pd.DataFrame(linhas_metas).to_excel(writer, sheet_name="Metas", index=False)
+            buf.seek(0)
+            return buf
+
+        st.download_button("⬇️ Baixar Backup Completo (.xlsx)", data=_gerar_backup_xlsx(),
+            file_name=f"backup_plataforma_delga_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True, type="primary")
+
+        st.markdown("---")
+        st.markdown("##### ⬆️ Restaurar backup")
+        st.warning("⚠️ Restaurar **apaga todos os projetos, lançamentos e metas atuais** e "
+                  "recarrega exatamente o que estiver no arquivo. Use só quando a base tiver "
+                  "zerado ou pra voltar a um ponto salvo — não soma com o que já existe.")
+        arq_backup = st.file_uploader("Enviar arquivo de backup (.xlsx)", type=["xlsx"], key="up_backup")
+
+        if arq_backup is not None:
+            try:
+                xls_b = pd.read_excel(arq_backup, sheet_name=None)
+                df_p = xls_b.get("Projetos")
+                df_l = xls_b.get("Lancamentos")
+                df_m = xls_b.get("Metas")
+                if df_p is None:
+                    st.error("Esse arquivo não parece um backup da plataforma — falta a aba 'Projetos'.")
+                else:
+                    linhas_proj_r = df_p.fillna("").to_dict("records")
+                    linhas_lanc_r = df_l.fillna("").to_dict("records") if df_l is not None else []
+                    linhas_metas_r = df_m.fillna("").to_dict("records") if df_m is not None else []
+                    st.markdown(f"**Prévia:** {len(linhas_proj_r)} projeto(s), "
+                              f"{len(linhas_lanc_r)} lançamento(s), {len(linhas_metas_r)} meta(s) "
+                              f"nesse arquivo — isso vai **substituir** os dados atuais.")
+                    confirmar_rest = st.checkbox(
+                        "Confirmo que quero apagar os dados atuais e restaurar este backup.")
+                    if st.button("♻️ Restaurar Backup", disabled=not confirmar_rest,
+                                type="primary", use_container_width=True):
+                        n_p, n_l, n_m, erros_r = restaurar_backup_completo(
+                            linhas_proj_r, linhas_lanc_r, linhas_metas_r, user["id"])
+                        st.success(f"✅ Restaurado: {n_p} projeto(s), {n_l} lançamento(s) "
+                                  f"de real e {n_m} meta(s).")
+                        if erros_r:
+                            st.error(f"{len(erros_r)} projeto(s) falharam: " +
+                                    "; ".join(f"{e['nome']} ({e['erro']})" for e in erros_r))
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Não consegui ler esse arquivo: {e}")
 
     with tab_import:
         st.markdown("**📥 Importação em Lote — Projetos e Metas (nível de arranque)**")
