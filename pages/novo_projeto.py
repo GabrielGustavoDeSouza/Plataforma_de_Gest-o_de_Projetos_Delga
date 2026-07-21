@@ -73,10 +73,10 @@ def render(user, **colors):
         # ── Datas e Valores ───────────────────────────────────────────────────
         st.markdown("#### Datas e Valores")
         c1,c2,c3 = st.columns(3)
-        with c1: inicio  = st.date_input("Data de Início do Projeto")
-        with c2: termino = st.date_input("Data de Fim do Projeto")
+        with c1: inicio  = st.date_input("Data de Início do Projeto", format="DD/MM/YYYY")
+        with c2: termino = st.date_input("Data de Fim do Projeto", format="DD/MM/YYYY")
         with c3: mpr     = st.date_input(
-            "Ganho a partir de... *",
+            "Ganho a partir de... *", format="DD/MM/YYYY",
             help="Mês em que o projeto começa a gerar ganho financeiro. "
                  "A partir daqui contam 12 meses de vida útil. "
                  "Obrigatório também para projetos Extra DRE.")
