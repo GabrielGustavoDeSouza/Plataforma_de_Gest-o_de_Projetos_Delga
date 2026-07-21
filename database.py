@@ -65,10 +65,16 @@ def init_db():
         saving_validado REAL DEFAULT 0,
         onde_parado TEXT, data_lib TEXT,
         campeao INTEGER DEFAULT 0, campeao_em TEXT,
+        ganho_unico INTEGER DEFAULT 0,
         criado_em TEXT DEFAULT (datetime('now')),
         criado_por INTEGER REFERENCES usuarios(id),
         ultima_atualizacao TEXT DEFAULT (datetime('now')),
         atualizado_por INTEGER REFERENCES usuarios(id))""")
+    # Migração leve — adiciona a coluna se o banco já existia sem ela
+    try:
+        c.execute("ALTER TABLE projetos ADD COLUMN ganho_unico INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     c.execute("""CREATE TABLE IF NOT EXISTS projeto_links (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         projeto_id INTEGER NOT NULL REFERENCES projetos(id) ON DELETE CASCADE,
@@ -172,54 +178,82 @@ def importar_projetos_lote(linhas, criado_por_id):
     return sucesso, erros
 
 def exportar_backup_completo():
-    """Gera o backup completo (projetos + lançamentos + metas) em listas de
-    dicts prontas pra virar planilha. Formato que a própria plataforma sabe
-    reler 100%, sem ambiguidade — pensado pra 'zerei hoje, recupero amanhã'."""
+    """Gera o backup completo (projetos com real mês a mês embutido + metas +
+    usuários) em listas de dicts prontas pra virar planilha de 3 abas. Formato
+    que a própria plataforma sabe reler 100%, pensado pra 'zerei hoje, recupero
+    amanhã' sem perder checklist, validação, ganho único nem usuários."""
     projetos = listar_projetos(incluir_campeao=True)
+
+    # Descobre todos os (ano,mes) com lançamento em qualquer projeto, pra criar
+    # as colunas de Real dinamicamente — funciona mesmo depois de virar o ano.
+    lancs_por_projeto = {}
+    meses_com_real = set()
+    for p in projetos:
+        mapa = {(l["ano"],l["mes"]): l["valor_real"] for l in get_lancamentos(proj_id=p["id"])}
+        lancs_por_projeto[p["id"]] = mapa
+        meses_com_real.update(mapa.keys())
+    meses_ordenados = sorted(meses_com_real)
+
+    def _sn(v): return "Sim" if v else "Não"
+
     linhas_proj = []
     for p in projetos:
-        linhas_proj.append({
+        linha = {
             "Unidade": p["unidade_nome"], "Tipo": p["tipo"], "VA/GGF": p.get("va_ggf") or "",
             "Nome do Projeto": p["nome"], "Descrição": p.get("descricao") or "",
             "Responsável": p.get("responsavel") or "",
             "Data Início": str(p.get("inicio") or ""), "Data Fim": str(p.get("termino") or ""),
             "Valor Previsto": p.get("previsto_unidade") or 0,
             "Mês Primeiro Retorno": str(p.get("mes_primeiro_retorno") or ""),
+            "Ganho Único": _sn(p.get("ganho_unico")),
             "Validação": p.get("validador_ok") or "Pendente",
             "Valor Calculado Custos": p.get("previsto_custos") or 0,
             "Saving Validado": p.get("saving_validado") or 0,
             "Status": p.get("status") or "",
+            "Check A3": _sn(p.get("check_a3")),
+            "Check Memória": _sn(p.get("check_memoria")),
+            "Check Formalizado": _sn(p.get("check_formalizado")),
             "Atividade Atual": p.get("atividade_atual") or "",
             "Responsável Atividade": p.get("onde_parado") or "",
             "Previsão Conclusão": p.get("data_conclusao_ativ") or "",
             "Observações": p.get("obs") or "",
-        })
-    linhas_lanc = []
-    for p in projetos:
-        for l in get_lancamentos(proj_id=p["id"]):
-            linhas_lanc.append({
-                "Unidade": p["unidade_nome"], "Nome do Projeto": p["nome"],
-                "Ano": l["ano"], "Mês": l["mes"], "Valor Real": l["valor_real"] or 0,
-                "Observação": l.get("observacao") or "",
-            })
+        }
+        lancs = lancs_por_projeto[p["id"]]
+        for (ano_m, mes_m) in meses_ordenados:
+            linha[f"Real {mes_m:02d}/{ano_m}"] = lancs.get((ano_m, mes_m), "")
+        linhas_proj.append(linha)
+
     linhas_metas = []
     for u in listar_unidades(so_ativas=False):
         for ano in range(2025,2032):
             m = get_meta(u["nome"], ano)
             if m and m > 0:
                 linhas_metas.append({"Unidade": u["nome"], "Ano": ano, "Valor da Meta": m})
-    return linhas_proj, linhas_lanc, linhas_metas
 
-def restaurar_backup_completo(linhas_proj, linhas_lanc, linhas_metas, user_id):
-    """Apaga TODOS os projetos/lançamentos/metas atuais e recarrega a partir
-    de um backup exportado por exportar_backup_completo. Operação destrutiva
-    — a UI precisa confirmar antes de chamar isso."""
+    linhas_usuarios = []
+    for u in listar_usuarios():
+        linhas_usuarios.append({
+            "Nome": u["nome"], "Email": u["email"], "Perfil": u["perfil"],
+            "Unidade": u.get("unidade") or "", "Ativo": _sn(u.get("ativo")),
+            "SenhaHashInterno": u.get("senha_hash") or "",
+        })
+
+    return linhas_proj, linhas_metas, linhas_usuarios
+
+def restaurar_backup_completo(linhas_proj, linhas_metas, linhas_usuarios, user_id):
+    """Apaga TODOS os projetos e metas atuais e recarrega a partir de um backup
+    exportado por exportar_backup_completo — incluindo real mês a mês,
+    checklist, validação e ganho único. Usuários já existentes (mesmo e-mail)
+    não são sobrescritos; só os que faltam são recriados, com a senha que
+    tinham antes preservada. Operação destrutiva — a UI precisa confirmar."""
     conn = get_conn()
     conn.execute("DELETE FROM projetos")
     conn.execute("DELETE FROM metas")
     conn.commit(); conn.close()
 
-    mapa_id = {}  # (unidade,nome) -> novo id
+    def _truthy(v): return str(v or "").strip().lower() in ("sim","1","true","yes")
+
+    mapa_id = {}
     erros = []
     for l in linhas_proj:
         try:
@@ -234,7 +268,10 @@ def restaurar_backup_completo(linhas_proj, linhas_lanc, linhas_metas, user_id):
                 "onde_parado": l.get("Responsável Atividade",""),
                 "data_conclusao_ativ": l.get("Previsão Conclusão",""),
                 "obs": l.get("Observações",""),
-                "check_a3": 1, "check_memoria": 1, "check_formalizado": 1,
+                "check_a3": int(_truthy(l.get("Check A3"))),
+                "check_memoria": int(_truthy(l.get("Check Memória"))),
+                "check_formalizado": int(_truthy(l.get("Check Formalizado"))),
+                "ganho_unico": int(_truthy(l.get("Ganho Único"))),
             }, user_id)
             atualizar_projeto(pid, {
                 "validador_ok": l.get("Validação") or "Pendente",
@@ -246,19 +283,42 @@ def restaurar_backup_completo(linhas_proj, linhas_lanc, linhas_metas, user_id):
             erros.append({"nome": l.get("Nome do Projeto","?"), "erro": str(e)})
 
     n_lanc = 0
-    for l in linhas_lanc:
+    for l in linhas_proj:
         pid = mapa_id.get((l["Unidade"], l["Nome do Projeto"]))
         if not pid: continue
-        try:
-            lancar_real(pid, int(l["Ano"]), int(l["Mês"]), l.get("Valor Real",0),
-                       l.get("Observação",""), user_id)
-            n_lanc += 1
-        except Exception: pass
+        for chave, valor in l.items():
+            if not str(chave).startswith("Real "): continue
+            if valor is None or valor == "" or (isinstance(valor,float) and valor!=valor): continue
+            try:
+                mes_str, ano_str = chave[5:].split("/")
+                lancar_real(pid, int(ano_str), int(mes_str), float(valor), "", user_id)
+                n_lanc += 1
+            except Exception:
+                pass
 
     for m in linhas_metas:
-        set_meta(m["Unidade"], int(m["Ano"]), m["Valor da Meta"])
+        try: set_meta(m["Unidade"], int(m["Ano"]), m["Valor da Meta"])
+        except Exception: pass
 
-    return len(mapa_id), n_lanc, len(linhas_metas), erros
+    n_usu = 0
+    conn = get_conn()
+    for u in linhas_usuarios:
+        email = str(u.get("Email","")).strip().lower()
+        if not email: continue
+        existe = conn.execute("SELECT id FROM usuarios WHERE email=?", (email,)).fetchone()
+        if existe: continue  # não sobrescreve usuário que já existe (ex: admin padrão)
+        senha_hash = u.get("SenhaHashInterno") or hash_senha("Delga@2026")
+        try:
+            conn.execute(
+                "INSERT INTO usuarios (nome,email,senha_hash,perfil,unidade,ativo) VALUES (?,?,?,?,?,?)",
+                (u.get("Nome",""), email, senha_hash, u.get("Perfil","facilitador"),
+                 u.get("Unidade") or None, int(_truthy(u.get("Ativo","Sim")))))
+            n_usu += 1
+        except Exception:
+            pass
+    conn.commit(); conn.close()
+
+    return len(mapa_id), n_lanc, len(linhas_metas), n_usu, erros
 
 def normalizar_url(url):
     """Garante que o link tenha esquema (https://), senão o navegador
@@ -403,15 +463,15 @@ def criar_projeto(unidade_nome, dados, user_id):
     cursor = conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,
         descricao,obs,inicio,termino,mes_primeiro_retorno,previsto_unidade,status,
         atividade_atual,data_conclusao_ativ,onde_parado,data_lib,
-        check_a3,check_memoria,check_formalizado,criado_por,atualizado_por)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        check_a3,check_memoria,check_formalizado,ganho_unico,criado_por,atualizado_por)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (u["id"],dados["nome"],dados["tipo"],dados.get("va_ggf"),dados.get("responsavel"),
          dados.get("descricao"),dados.get("obs"),dados.get("inicio"),dados.get("termino"),
          dados.get("mes_primeiro_retorno"),dados.get("previsto_unidade",0),
          dados.get("status","📝 Não iniciado"),dados.get("atividade_atual"),
          dados.get("data_conclusao_ativ"),dados.get("onde_parado"),dados.get("data_lib"),
          int(dados.get("check_a3",0)),int(dados.get("check_memoria",0)),
-         int(dados.get("check_formalizado",0)),user_id,user_id))
+         int(dados.get("check_formalizado",0)),int(dados.get("ganho_unico",0)),user_id,user_id))
     pid = cursor.lastrowid; conn.commit(); conn.close(); return pid
 
 def atualizar_projeto(proj_id, campos, user_id):
@@ -482,54 +542,40 @@ def get_lancamentos(unidade_nome=None, ano=None, proj_id=None):
     rows = conn.execute(q,params).fetchall()
     conn.close(); return [dict(r) for r in rows]
 
-def get_curva_unidade(proj_id):
-    """Curva mensal usando previsto_unidade."""
-    p = get_projeto(proj_id)
-    if not p or not p.get("mes_primeiro_retorno"): return {}
-    valor = p.get("previsto_unidade") or 0
-    if valor<=0: return {}
-    mensal = valor/12
+def _curva_de(p, valor):
+    """Monta a curva mensal de um valor — rateado em 12 meses a partir do
+    mês de primeiro retorno, OU concentrado num mês só se o projeto for
+    'Ganho Único' (ganho pontual, sem distribuição)."""
+    if not p or not p.get("mes_primeiro_retorno") or not valor or valor <= 0:
+        return {}
     try: mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m")
     except: return {}
+    if p.get("ganho_unico"):
+        return {(mpr.year, mpr.month): valor}
+    mensal = valor/12
     curva = {}
     for i in range(12):
         mes = (mpr.month-1+i)%12+1
         ano = mpr.year+(mpr.month-1+i)//12
         curva[(ano,mes)] = mensal
     return curva
+
+def get_curva_unidade(proj_id):
+    """Curva mensal usando previsto_unidade."""
+    p = get_projeto(proj_id)
+    return _curva_de(p, p.get("previsto_unidade") if p else 0)
 
 def get_curva_custos(proj_id):
     """Curva mensal usando previsto_custos."""
     p = get_projeto(proj_id)
-    if not p or not p.get("mes_primeiro_retorno"): return {}
-    valor = p.get("previsto_custos") or 0
-    if valor<=0: return {}
-    mensal = valor/12
-    try: mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m")
-    except: return {}
-    curva = {}
-    for i in range(12):
-        mes = (mpr.month-1+i)%12+1
-        ano = mpr.year+(mpr.month-1+i)//12
-        curva[(ano,mes)] = mensal
-    return curva
+    return _curva_de(p, p.get("previsto_custos") if p else 0)
 
 def get_curva_saving(proj_id):
     """Curva mensal do saving validado — mesma regra do previsto:
-    rateia em 12 meses a partir do mês de primeiro retorno."""
+    rateia em 12 meses a partir do mês de primeiro retorno (ou concentra
+    num mês só se for Ganho Único)."""
     p = get_projeto(proj_id)
-    if not p or not p.get("mes_primeiro_retorno"): return {}
-    valor = p.get("saving_validado") or 0
-    if valor <= 0: return {}
-    mensal = valor/12
-    try: mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m")
-    except: return {}
-    curva = {}
-    for i in range(12):
-        mes = (mpr.month-1+i)%12+1
-        ano = mpr.year+(mpr.month-1+i)//12
-        curva[(ano,mes)] = mensal
-    return curva
+    return _curva_de(p, p.get("saving_validado") if p else 0)
 
 def get_previsto_curva(proj_id):
     """Usa custos se disponível, senão unidade."""
