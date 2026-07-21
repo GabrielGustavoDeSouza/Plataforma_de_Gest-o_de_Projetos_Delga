@@ -72,21 +72,31 @@ def render(user, **colors):
 
         # ── Datas e Valores ───────────────────────────────────────────────────
         st.markdown("#### Datas e Valores")
+        ganho_unico = st.checkbox(
+            "🎯 Ganho Único — retorno pontual, só no mês do 1º retorno",
+            help="Use pra projetos raros em que o ganho inteiro acontece de uma vez, "
+                 "no próprio mês de retorno — sem rateio em 12 meses. Isso evita ficar "
+                 "esperando lançamento de real nos meses seguintes, que nesse caso não existem.")
         c1,c2,c3 = st.columns(3)
         with c1: inicio  = st.date_input("Data de Início do Projeto", format="DD/MM/YYYY")
         with c2: termino = st.date_input("Data de Fim do Projeto", format="DD/MM/YYYY")
         with c3: mpr     = st.date_input(
             "Ganho a partir de... *", format="DD/MM/YYYY",
             help="Mês em que o projeto começa a gerar ganho financeiro. "
-                 "A partir daqui contam 12 meses de vida útil. "
-                 "Obrigatório também para projetos Extra DRE.")
+                 + ("Como é Ganho Único, todo o valor entra nesse mês só."
+                    if ganho_unico else
+                    "A partir daqui contam 12 meses de vida útil. "
+                    "Obrigatório também para projetos Extra DRE."))
 
         previsto = st.number_input(
             "Valor Previsto (R$) *",
             min_value=0.0, step=1000.0, format="%.2f",
-            help="Valor estimado pela unidade. Distribuído em 12 meses a partir do 1º retorno. "
-                 + ("Para Extra DRE, acumula no indicador Extra DRE mês a mês." if is_extra else
-                    "Após validação de Custos, o valor calculado substituirá este nas projeções."))
+            help="Valor estimado pela unidade. "
+                 + ("Ganho Único: valor inteiro lançado no mês de retorno, sem rateio."
+                    if ganho_unico else
+                    "Distribuído em 12 meses a partir do 1º retorno. "
+                    + ("Para Extra DRE, acumula no indicador Extra DRE mês a mês." if is_extra else
+                       "Após validação de Custos, o valor calculado substituirá este nas projeções.")))
 
         # ── Links e Evidências ────────────────────────────────────────────────
         st.markdown("#### Links e Evidências (SharePoint / OneDrive)")
@@ -145,7 +155,7 @@ def render(user, **colors):
                 "data_conclusao_ativ": dt_ativ,
                 "onde_parado": resp_ativ,
                 "check_a3": ck_a3, "check_memoria": ck_mem,
-                "check_formalizado": ck_for,
+                "check_formalizado": ck_for, "ganho_unico": int(ganho_unico),
             }, user["id"])
             for tit, url in [(link1_tit,link1_url),(link2_tit,link2_url),(link3_tit,link3_url)]:
                 if tit and url:
