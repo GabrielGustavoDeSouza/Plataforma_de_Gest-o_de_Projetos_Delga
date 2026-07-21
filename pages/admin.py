@@ -159,20 +159,21 @@ def render(user, **colors):
         st.caption(
             "Esse é o fluxo recomendado pra manter tudo seguro enquanto o banco ainda não é "
             "persistente: baixe o backup periodicamente. Se a base zerar, suba o último "
-            "backup baixado e a plataforma volta pro ponto exato de onde parou — inclusive "
-            "os valores de real que Custos já lançou.")
+            "backup baixado e a plataforma volta pro ponto exato de onde parou — projetos, "
+            "checklist, validação, ganho único, real lançado mês a mês, metas e usuários.")
 
         st.markdown("##### ⬇️ Baixar backup")
-        linhas_proj, linhas_lanc, linhas_metas = exportar_backup_completo()
-        st.caption(f"Agora mesmo: {len(linhas_proj)} projeto(s), {len(linhas_lanc)} "
-                  f"lançamento(s) de real, {len(linhas_metas)} meta(s) cadastrada(s).")
+        linhas_proj, linhas_metas, linhas_usuarios = exportar_backup_completo()
+        n_meses_real = len([c for c in (linhas_proj[0].keys() if linhas_proj else []) if c.startswith("Real ")])
+        st.caption(f"Agora mesmo: {len(linhas_proj)} projeto(s) (com até {n_meses_real} mês(es) de "
+                  f"real cada), {len(linhas_metas)} meta(s), {len(linhas_usuarios)} usuário(s) cadastrado(s).")
 
         def _gerar_backup_xlsx():
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine="openpyxl") as writer:
                 pd.DataFrame(linhas_proj).to_excel(writer, sheet_name="Projetos", index=False)
-                pd.DataFrame(linhas_lanc).to_excel(writer, sheet_name="Lancamentos", index=False)
                 pd.DataFrame(linhas_metas).to_excel(writer, sheet_name="Metas", index=False)
+                pd.DataFrame(linhas_usuarios).to_excel(writer, sheet_name="Usuarios", index=False)
             buf.seek(0)
             return buf
 
@@ -180,37 +181,41 @@ def render(user, **colors):
             file_name=f"backup_plataforma_delga_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True, type="primary")
+        st.caption("A aba 'Usuarios' guarda a senha num formato técnico (hash) — não dá pra ler a "
+                  "senha ali, só serve pra restaurar o login sem precisar redefinir depois. Não edite essa coluna.")
 
         st.markdown("---")
         st.markdown("##### ⬆️ Restaurar backup")
-        st.warning("⚠️ Restaurar **apaga todos os projetos, lançamentos e metas atuais** e "
-                  "recarrega exatamente o que estiver no arquivo. Use só quando a base tiver "
-                  "zerado ou pra voltar a um ponto salvo — não soma com o que já existe.")
+        st.warning("⚠️ Restaurar **apaga todos os projetos e metas atuais** e recarrega exatamente "
+                  "o que estiver no arquivo. Usuários que já existirem (mesmo e-mail) não são "
+                  "apagados nem duplicados — só os que faltarem são recriados. Não soma com o que já existe.")
         arq_backup = st.file_uploader("Enviar arquivo de backup (.xlsx)", type=["xlsx"], key="up_backup")
 
         if arq_backup is not None:
             try:
                 xls_b = pd.read_excel(arq_backup, sheet_name=None)
                 df_p = xls_b.get("Projetos")
-                df_l = xls_b.get("Lancamentos")
                 df_m = xls_b.get("Metas")
+                df_u = xls_b.get("Usuarios")
                 if df_p is None:
                     st.error("Esse arquivo não parece um backup da plataforma — falta a aba 'Projetos'.")
                 else:
                     linhas_proj_r = df_p.fillna("").to_dict("records")
-                    linhas_lanc_r = df_l.fillna("").to_dict("records") if df_l is not None else []
                     linhas_metas_r = df_m.fillna("").to_dict("records") if df_m is not None else []
-                    st.markdown(f"**Prévia:** {len(linhas_proj_r)} projeto(s), "
-                              f"{len(linhas_lanc_r)} lançamento(s), {len(linhas_metas_r)} meta(s) "
-                              f"nesse arquivo — isso vai **substituir** os dados atuais.")
+                    linhas_usuarios_r = df_u.fillna("").to_dict("records") if df_u is not None else []
+                    n_meses_r = len([c for c in linhas_proj_r[0].keys() if str(c).startswith("Real ")]) if linhas_proj_r else 0
+                    st.markdown(f"**Prévia:** {len(linhas_proj_r)} projeto(s) (com colunas de real pra "
+                              f"até {n_meses_r} mês(es)), {len(linhas_metas_r)} meta(s), "
+                              f"{len(linhas_usuarios_r)} usuário(s) nesse arquivo — isso vai **substituir** "
+                              f"os projetos e metas atuais.")
                     confirmar_rest = st.checkbox(
                         "Confirmo que quero apagar os dados atuais e restaurar este backup.")
                     if st.button("♻️ Restaurar Backup", disabled=not confirmar_rest,
                                 type="primary", use_container_width=True):
-                        n_p, n_l, n_m, erros_r = restaurar_backup_completo(
-                            linhas_proj_r, linhas_lanc_r, linhas_metas_r, user["id"])
-                        st.success(f"✅ Restaurado: {n_p} projeto(s), {n_l} lançamento(s) "
-                                  f"de real e {n_m} meta(s).")
+                        n_p, n_l, n_m, n_u, erros_r = restaurar_backup_completo(
+                            linhas_proj_r, linhas_metas_r, linhas_usuarios_r, user["id"])
+                        st.success(f"✅ Restaurado: {n_p} projeto(s), {n_l} lançamento(s) de real, "
+                                  f"{n_m} meta(s) e {n_u} usuário(s) novo(s) recriado(s).")
                         if erros_r:
                             st.error(f"{len(erros_r)} projeto(s) falharam: " +
                                     "; ".join(f"{e['nome']} ({e['erro']})" for e in erros_r))
