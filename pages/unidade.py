@@ -375,6 +375,7 @@ def render(user, **colors):
         txt_c    =f"color:{RED};" if atrasado else f"color:{NAVY};"
         vok_c    =GREEN if p.get("validador_ok")=="OK" else (RED if p.get("validador_ok")=="NOK" else AMBER)
         dre_b    =f'<span style="background:#F3E8FF;color:#9B59B6;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;margin-left:6px;">↷ N/DRE</span>' if extra else f'<span style="background:#E6F4EC;color:{GREEN};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;margin-left:6px;">✓ DRE</span>'
+        gu_b     =f'<span style="background:#FFF3E0;color:#B8720A;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;margin-left:6px;">🎯 Único</span>' if p.get("ganho_unico") else ""
         ult_obs  = get_ultima_obs_custos(p["id"])
         ult_obs_html = (f'<div style="margin-top:5px;font-size:10px;color:#7A8394;">'
                          f'💬 {_html.escape(ult_obs["texto"])}</div>') if ult_obs else ""
@@ -403,7 +404,7 @@ def render(user, **colors):
 <div style="border-left:4px solid {border_c};background:white;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:2px;box-shadow:0 1px 4px rgba(28,43,74,.06);">
 <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
 <div style="flex:1;min-width:180px;">
-<div style="font-size:10px;color:{SILVER};">{p['tipo']}{dre_b} · {p.get('va_ggf','—')}</div>
+<div style="font-size:10px;color:{SILVER};">{p['tipo']}{dre_b}{gu_b} · {p.get('va_ggf','—')}</div>
 <div style="font-size:13px;font-weight:700;{txt_c}margin-top:2px;">#{p['id']} — {p['nome']}{'<span style="font-size:10px;color:#C8202E;margin-left:8px;">⚠️ ATRASADO</span>' if atrasado else ''}</div>
 <div style="font-size:10px;color:{SILVER};margin-top:3px;">Resp: <b>{p.get('responsavel','—')}</b> · Término: <b style="color:{'#C8202E' if atrasado else '#333'};">{term_str or '—'}</b> · Custos: <b style="color:{vok_c};">{p.get('validador_ok','Pendente')}</b></div>
 {f'<div style="margin-top:4px;">{link_html}</div>' if link_html else ''}
@@ -435,6 +436,11 @@ def render(user, **colors):
                     nome_e=st.text_input("Nome",value=p["nome"],key=f"nm_{p['id']}")
                     desc_e=st.text_area("Descrição",value=p.get("descricao","") or "",height=60,key=f"ds_{p['id']}")
                     st.markdown("**Datas e Valores**")
+                    ganho_unico_e = st.checkbox(
+                        "🎯 Ganho Único — retorno pontual, só no mês do 1º retorno",
+                        value=bool(p.get("ganho_unico")), key=f"gu_{p['id']}",
+                        help="Marque pra concentrar todo o valor no mês de retorno, sem "
+                             "ratear em 12 meses nem esperar lançamento de real nos outros meses.")
                     c1,c2,c3=st.columns(3)
                     with c1: inicio_e=st.date_input("Data de Início do Projeto",value=_parse_date(p.get("inicio")),key=f"ini_{p['id']}",format="DD/MM/YYYY")
                     with c2: termino_e=st.date_input("Data de Fim do Projeto",value=_parse_date(p.get("termino")),key=f"trm_{p['id']}",format="DD/MM/YYYY")
@@ -473,7 +479,7 @@ def render(user, **colors):
                     with col_d: excluir_e=st.form_submit_button("🗑️",use_container_width=True)
 
                 if salvar_e:
-                    atualizar_projeto(p["id"],{"nome":nome_e,"tipo":tipo_e,"va_ggf":va_e,"responsavel":resp_e,"descricao":desc_e,"obs":obs_e,"status":status_e,"inicio":str(inicio_e),"termino":str(termino_e),"mes_primeiro_retorno":str(mpr_e),"previsto_unidade":prev_e,"previsto_custos":prev_c,"atividade_atual":ativ_e,"onde_parado":resp_ativ_e,"data_conclusao_ativ":dt_e,"check_a3":int(ck_a3_e),"check_memoria":int(ck_mem_e),"check_formalizado":int(ck_for_e),"validador_ok":val_ok,"saving_validado":saving},user["id"])
+                    atualizar_projeto(p["id"],{"nome":nome_e,"tipo":tipo_e,"va_ggf":va_e,"responsavel":resp_e,"descricao":desc_e,"obs":obs_e,"status":status_e,"inicio":str(inicio_e),"termino":str(termino_e),"mes_primeiro_retorno":str(mpr_e),"previsto_unidade":prev_e,"previsto_custos":prev_c,"atividade_atual":ativ_e,"onde_parado":resp_ativ_e,"data_conclusao_ativ":dt_e,"check_a3":int(ck_a3_e),"check_memoria":int(ck_mem_e),"check_formalizado":int(ck_for_e),"validador_ok":val_ok,"saving_validado":saving,"ganho_unico":int(ganho_unico_e)},user["id"])
                     st.success("✅ Atualizado!"); st.session_state[f"edit_open_{p['id']}"]=False; st.rerun()
                 if excluir_e:
                     deletar_projeto(p["id"]); st.success("🗑️ Excluído."); st.rerun()
