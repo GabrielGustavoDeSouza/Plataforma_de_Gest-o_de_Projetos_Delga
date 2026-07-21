@@ -79,6 +79,11 @@ input[type="radio"],input[type="checkbox"]{{accent-color:{BLUE}!important;}}
 [data-testid="stRadio"] input[type="radio"]:checked + div > div,
 [data-testid="stCheckbox"] input[type="checkbox"]:checked + div > div{{
   background-color:{BLUE}!important;}}
+/* A caixinha de check fica dentro de um <span> escondido antes do <div>
+   visível, então o seletor "input + div" não bate — usa o mesmo padrão
+   estrutural do rádio (label[data-selected]). */
+[data-testid="stCheckbox"] label[data-selected="true"] > div:first-of-type{{
+  background-color:{BLUE}!important;border-color:{BLUE}!important;}}
 label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first-child,
 label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first-child:hover,
 label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first-child:focus{{
