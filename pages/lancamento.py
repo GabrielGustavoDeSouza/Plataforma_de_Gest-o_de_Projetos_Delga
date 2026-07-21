@@ -167,7 +167,9 @@ def render(user, **colors):
         for p in todos_ap:
             curva = get_curva_unidade(p["id"])
             if (ano_sel, mes_sel) in curva:
-                proj_mes.append((p, curva[(ano_sel, mes_sel)]))
+                curva_c = get_curva_custos(p["id"])
+                frac_custos = curva_c.get((ano_sel, mes_sel), 0)
+                proj_mes.append((p, curva[(ano_sel, mes_sel)], frac_custos))
 
         if not proj_mes:
             st.info(f"Nenhum projeto DRE aprovado com retorno previsto em "
@@ -179,8 +181,8 @@ def render(user, **colors):
                 if l["mes"] == mes_sel and not is_extra_dre(l.get("tipo","")):
                     lancs_exist[l["projeto_id"]] = l
 
-            pendentes = [(p,f) for p,f in proj_mes if p["id"] not in lancs_exist]
-            lancados  = [(p,f) for p,f in proj_mes if p["id"] in lancs_exist]
+            pendentes = [(p,f,fc) for p,f,fc in proj_mes if p["id"] not in lancs_exist]
+            lancados  = [(p,f,fc) for p,f,fc in proj_mes if p["id"] in lancs_exist]
 
             st.markdown(f"**{len(proj_mes)} projeto(s)** · "
                         f"{len(pendentes)} pendente(s) · {len(lancados)} lançado(s) "
@@ -190,12 +192,12 @@ def render(user, **colors):
             # ── Um formulário independente por projeto ─────────────────────────
             if not pendentes:
                 st.success(f"✅ Todos os projetos já foram lançados em {MESES_PT[mes_sel-1]}/{ano_sel}.")
-            for p, frac in pendentes:
+            for p, frac, frac_custos in pendentes:
                 hc(f"""
 <div style="padding:8px 12px;background:white;border-radius:6px 6px 0 0;
      border:1px solid #EEF0F3;border-bottom:none;">
   <div style="font-size:11px;font-weight:700;color:{NAVY};">⏳ #{p['id']} — {p['nome'][:55]}</div>
-  <div style="font-size:10px;color:{SILVER};">{p['unidade_nome']} · {p['tipo']} · Fração prevista: <b style="color:{AMBER};">{fmt_brl(frac)}</b></div>
+  <div style="font-size:10px;color:{SILVER};">{p['unidade_nome']} · {p['tipo']} · Fração prevista por Unidade: <b style="color:{AMBER};">{fmt_brl(frac)}</b> // Fração prevista por Custo: <b style="color:{AMBER};">{fmt_brl(frac_custos)}</b></div>
 </div>""")
                 with st.form(f"real_{p['id']}_{ano_sel}_{mes_sel}"):
                     c1,c2 = st.columns([2,4])
@@ -219,7 +221,7 @@ def render(user, **colors):
                 st.markdown(f"**✏️ Revisar lançamentos de {MESES_PT[mes_sel-1]}/{ano_sel}:**")
                 st.caption("Edite valores lançados incorretamente.")
 
-                for p, frac in lancados:
+                for p, frac, frac_custos in lancados:
                     lc     = lancs_exist[p["id"]]
                     real_v = lc["valor_real"]
                     diff   = real_v - frac if frac else 0
@@ -240,7 +242,8 @@ def render(user, **colors):
                                     "Observação", value=lc.get("observacao","") or "")
                             hc(f"""
 <div style="display:flex;gap:16px;font-size:11px;padding:6px 0;">
-  <span>Fração prevista: <b>{fmt_brl(frac)}</b></span>
+  <span>Fração prevista por Unidade: <b>{fmt_brl(frac)}</b></span>
+  <span>Fração prevista por Custo: <b>{fmt_brl(frac_custos)}</b></span>
   <span>Diferença: <b style="color:{diff_c};">{'▲' if diff>=0 else '▼'} {fmt_brl(abs(diff))}</b></span>
 </div>""")
                             if st.form_submit_button("💾 Atualizar", use_container_width=True):
