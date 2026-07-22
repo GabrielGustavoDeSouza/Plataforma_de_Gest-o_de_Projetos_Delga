@@ -174,8 +174,10 @@ with st.sidebar:
     elif perfil == "cost_control":
         opcoes = ["🏠 Dashboard Global","🏭 Minha Unidade",
                   "💰 Controle de Custos","👤 Minha Conta"]
-    elif perfil in ("facilitador","gestor"):
+    elif perfil == "facilitador":
         opcoes = ["🏭 Minha Unidade","➕ Novo Projeto","👤 Minha Conta"]
+    elif perfil == "gestor":
+        opcoes = ["🏠 Dashboard Global","🏭 Minha Unidade","➕ Novo Projeto","👤 Minha Conta"]
     elif perfil == "visualizador":
         opcoes = ["🏠 Dashboard Global","🏭 Minha Unidade","👤 Minha Conta"]
     else:
