@@ -34,7 +34,7 @@ def render(user, **colors):
             cols = st.columns(len(row))
             for i,u in enumerate(row):
                 with cols[i]:
-                    if st.checkbox(u, value=True, key=f"{key}_{u}"):
+                    if st.checkbox(u, value=False, key=f"{key}_{u}"):
                         sel.append(u)
         return sel
 
@@ -48,91 +48,94 @@ def render(user, **colors):
             st.info("Acesso restrito ao time de Cost Control."); 
         else:
             unis_fila = filtro_checkboxes("fila")
-            todos = listar_projetos()
-            fila  = [p for p in todos
-                     if p["check_a3"] and p["check_memoria"] and p["check_formalizado"]
-                     and p.get("validador_ok","Pendente")=="Pendente"
-                     and p["unidade_nome"] in unis_fila]
-
-            st.markdown(f"**{len(fila)} projeto(s) aguardando aprovação**")
-            if not fila:
-                st.success("✅ Nenhum projeto aguardando aprovação.")
+            if not unis_fila:
+                st.info("👆 Marque uma ou mais unidades acima para ver os projetos aguardando aprovação.")
             else:
-                for p in fila:
-                    links = get_links(p["id"])
-                    extra = is_extra_dre(p["tipo"])
-                    dre_b = f'<span style="background:#F3E8FF;color:#9B59B6;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;">↷ N/DRE</span>' if extra else f'<span style="background:#E6F4EC;color:{GREEN};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;">✓ DRE</span>'
+                todos = listar_projetos()
+                fila  = [p for p in todos
+                         if p["check_a3"] and p["check_memoria"] and p["check_formalizado"]
+                         and p.get("validador_ok","Pendente")=="Pendente"
+                         and p["unidade_nome"] in unis_fila]
 
-                    # Links como botões HTML clicáveis com href real
-                    if links:
-                        link_items = "".join(
-                            f'<a href="{_html.escape(normalizar_url(lk["url"]), quote=True)}" '
-                            f'target="_blank" rel="noopener noreferrer" '
-                            f'style="display:inline-flex;align-items:center;gap:4px;'
-                            f'background:{NAVY};color:white;font-size:11px;font-weight:600;'
-                            f'padding:5px 12px;border-radius:6px;text-decoration:none;'
-                            f'margin-right:6px;margin-top:4px;">'
-                            f'🔗 {_html.escape(lk["titulo"])}</a>'
-                            for lk in links)
-                        links_html = f'<div style="margin-top:8px;">{link_items}</div>'
-                    else:
-                        links_html = f'<p style="font-size:10px;color:#ccc;margin-top:6px;">Sem links cadastrados</p>'
+                st.markdown(f"**{len(fila)} projeto(s) aguardando aprovação**")
+                if not fila:
+                    st.success("✅ Nenhum projeto aguardando aprovação.")
+                else:
+                    for p in fila:
+                        links = get_links(p["id"])
+                        extra = is_extra_dre(p["tipo"])
+                        dre_b = f'<span style="background:#F3E8FF;color:#9B59B6;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;">↷ N/DRE</span>' if extra else f'<span style="background:#E6F4EC;color:{GREEN};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;">✓ DRE</span>'
 
-                    hc(f"""
-<div style="border-left:4px solid {NAVY};background:white;border-radius:0 8px 8px 0;
-     padding:14px 18px;margin-bottom:6px;box-shadow:0 1px 4px rgba(28,43,74,.08);">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-    <div style="flex:1;">
-      <div style="font-size:10px;color:{SILVER};">{p['unidade_nome']} · {p['tipo']} {dre_b}</div>
-      <div style="font-size:13px;font-weight:700;color:{NAVY};margin-top:2px;">#{p['id']} — {p['nome']}</div>
-      <div style="font-size:11px;color:#555;margin-top:4px;">{p.get('descricao','') or '—'}</div>
-      {links_html}
-    </div>
-    <div style="text-align:right;flex-shrink:0;margin-left:20px;">
-      <div style="font-size:9px;color:{SILVER};text-transform:uppercase;letter-spacing:.4px;">Previsto Unidade</div>
-      <div style="font-size:18px;font-weight:700;color:{AMBER};">{fmt_brl(p['previsto_unidade'])}</div>
-    </div>
-  </div>
-</div>""")
+                        # Links como botões HTML clicáveis com href real
+                        if links:
+                            link_items = "".join(
+                                f'<a href="{_html.escape(normalizar_url(lk["url"]), quote=True)}" '
+                                f'target="_blank" rel="noopener noreferrer" '
+                                f'style="display:inline-flex;align-items:center;gap:4px;'
+                                f'background:{NAVY};color:white;font-size:11px;font-weight:600;'
+                                f'padding:5px 12px;border-radius:6px;text-decoration:none;'
+                                f'margin-right:6px;margin-top:4px;">'
+                                f'🔗 {_html.escape(lk["titulo"])}</a>'
+                                for lk in links)
+                            links_html = f'<div style="margin-top:8px;">{link_items}</div>'
+                        else:
+                            links_html = f'<p style="font-size:10px;color:#ccc;margin-top:6px;">Sem links cadastrados</p>'
 
-                    with st.expander(f"⚖️ Aprovar / Reprovar #{p['id']} — {p['nome'][:40]}", expanded=False):
-                        with st.form(f"fap_{p['id']}"):
-                            decisao = st.radio("Decisão:", ["✅ Aprovar","❌ Reprovar"],
-                                               horizontal=True, key=f"dec_{p['id']}")
-                            valor_c = 0.0
-                            if decisao == "✅ Aprovar":
-                                valor_c = st.number_input(
-                                    "Valor Calculado por Custos (R$)" +
-                                    (" **(Extra DRE — pode deixar 0)**" if extra else " *"),
-                                    min_value=0.0, step=500.0, format="%.2f",
-                                    key=f"vc_{p['id']}")
-                                obs_ap = st.text_area("Observação (opcional)", height=60, key=f"oa_{p['id']}")
-                            else:
-                                obs_ap = st.text_area("Motivo da reprovação", height=60, key=f"or_{p['id']}")
+                        hc(f"""
+    <div style="border-left:4px solid {NAVY};background:white;border-radius:0 8px 8px 0;
+         padding:14px 18px;margin-bottom:6px;box-shadow:0 1px 4px rgba(28,43,74,.08);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div style="flex:1;">
+          <div style="font-size:10px;color:{SILVER};">{p['unidade_nome']} · {p['tipo']} {dre_b}</div>
+          <div style="font-size:13px;font-weight:700;color:{NAVY};margin-top:2px;">#{p['id']} — {p['nome']}</div>
+          <div style="font-size:11px;color:#555;margin-top:4px;">{p.get('descricao','') or '—'}</div>
+          {links_html}
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:20px;">
+          <div style="font-size:9px;color:{SILVER};text-transform:uppercase;letter-spacing:.4px;">Previsto Unidade</div>
+          <div style="font-size:18px;font-weight:700;color:{AMBER};">{fmt_brl(p['previsto_unidade'])}</div>
+        </div>
+      </div>
+    </div>""")
 
-                            confirmar = st.form_submit_button("Confirmar", use_container_width=True)
+                        with st.expander(f"⚖️ Aprovar / Reprovar #{p['id']} — {p['nome'][:40]}", expanded=False):
+                            with st.form(f"fap_{p['id']}"):
+                                decisao = st.radio("Decisão:", ["✅ Aprovar","❌ Reprovar"],
+                                                   horizontal=True, key=f"dec_{p['id']}")
+                                valor_c = 0.0
+                                if decisao == "✅ Aprovar":
+                                    valor_c = st.number_input(
+                                        "Valor Calculado por Custos (R$)" +
+                                        (" **(Extra DRE — pode deixar 0)**" if extra else " *"),
+                                        min_value=0.0, step=500.0, format="%.2f",
+                                        key=f"vc_{p['id']}")
+                                    obs_ap = st.text_area("Observação (opcional)", height=60, key=f"oa_{p['id']}")
+                                else:
+                                    obs_ap = st.text_area("Motivo da reprovação", height=60, key=f"or_{p['id']}")
 
-                        if confirmar:
-                            if decisao == "✅ Aprovar":
-                                if not extra and valor_c <= 0:
-                                    st.error("Informe o Valor Calculado por Custos.")
+                                confirmar = st.form_submit_button("Confirmar", use_container_width=True)
+
+                            if confirmar:
+                                if decisao == "✅ Aprovar":
+                                    if not extra and valor_c <= 0:
+                                        st.error("Informe o Valor Calculado por Custos.")
+                                    else:
+                                        atualizar_projeto(p["id"], {
+                                            "validador_ok":  "OK",
+                                            "previsto_custos": valor_c,
+                                            "saving_validado": valor_c,
+                                            "obs": (p.get("obs","") or "") + (f"\n[Custos] {obs_ap}" if obs_ap else ""),
+                                        }, user["id"])
+                                        st.success(f"✅ Projeto #{p['id']} aprovado!")
+                                        st.rerun()
                                 else:
                                     atualizar_projeto(p["id"], {
-                                        "validador_ok":  "OK",
-                                        "previsto_custos": valor_c,
-                                        "saving_validado": valor_c,
-                                        "obs": (p.get("obs","") or "") + (f"\n[Custos] {obs_ap}" if obs_ap else ""),
+                                        "validador_ok": "NOK",
+                                        "check_formalizado": 0,
+                                        "obs": (p.get("obs","") or "") + (f"\n[Reprovado] {obs_ap}" if obs_ap else ""),
                                     }, user["id"])
-                                    st.success(f"✅ Projeto #{p['id']} aprovado!")
+                                    st.warning(f"⚠️ Projeto #{p['id']} reprovado. Retorna para a unidade.")
                                     st.rerun()
-                            else:
-                                atualizar_projeto(p["id"], {
-                                    "validador_ok": "NOK",
-                                    "check_formalizado": 0,
-                                    "obs": (p.get("obs","") or "") + (f"\n[Reprovado] {obs_ap}" if obs_ap else ""),
-                                }, user["id"])
-                                st.warning(f"⚠️ Projeto #{p['id']} reprovado. Retorna para a unidade.")
-                                st.rerun()
 
     # ── Controle de Custos ────────────────────────────────────────────────────
     with tab_real:
@@ -144,6 +147,9 @@ def render(user, **colors):
             st.info("Acesso restrito ao time de Cost Control."); return
 
         unis_real = filtro_checkboxes("real")
+        if not unis_real:
+            st.info("👆 Marque uma ou mais unidades acima para ver os projetos do mês.")
+            return
 
         c1,c2 = st.columns(2)
         with c1:
