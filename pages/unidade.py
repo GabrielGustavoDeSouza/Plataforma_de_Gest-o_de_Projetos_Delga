@@ -34,6 +34,91 @@ def linha_atrasada(p):
     try: return date(int(t[:4]),int(t[5:7]),28) < date.today()
     except: return False
 
+def toggle_editor_button(p, discreet=False):
+    """Botão de editar (lápis) — alterna o formulário aberto/fechado.
+    discreet=True usa um ícone só, pra caber ao lado de uma linha compacta
+    (ex.: lista de Campeões) em vez do botão de largura total do cartão."""
+    label = "✏️" if discreet else f"✏️ Editar #{p['id']}"
+    if st.button(label, key=f"btn_ed_{p['id']}", use_container_width=not discreet,
+                 help=f"Editar #{p['id']}" if discreet else None):
+        st.session_state[f"edit_open_{p['id']}"] = not st.session_state.get(f"edit_open_{p['id']}", False)
+
+def render_editor_form(p, user, is_cc, GREEN, AMBER, RED):
+    """Formulário completo de edição — chamado quando 'edit_open_<id>' está
+    True. Usado tanto no cartão normal quanto na lista de Campeões."""
+    links = get_links(p["id"])
+    with st.form(f"fe_{p['id']}"):
+        c1,c2,c3=st.columns(3)
+        with c1: tipo_e=st.selectbox("Tipo",TIPOS_PROJETO,index=TIPOS_PROJETO.index(p["tipo"]) if p["tipo"] in TIPOS_PROJETO else 0,key=f"ti_{p['id']}")
+        with c2: va_e=st.selectbox("VA/GGF",VA_GGF_OPTS,index=VA_GGF_OPTS.index(p["va_ggf"]) if p.get("va_ggf") in VA_GGF_OPTS else 0,key=f"va_{p['id']}")
+        with c3: resp_e=st.text_input("Responsável",value=p.get("responsavel",""),key=f"re_{p['id']}")
+        nome_e=st.text_input("Nome",value=p["nome"],key=f"nm_{p['id']}")
+        desc_e=st.text_area("Descrição",value=p.get("descricao","") or "",height=60,key=f"ds_{p['id']}")
+        st.markdown("**Datas e Valores**")
+        ganho_unico_e = st.checkbox(
+            "🎯 Ganho Único — retorno pontual, só no mês do 1º retorno",
+            value=bool(p.get("ganho_unico")), key=f"gu_{p['id']}",
+            help="Marque pra concentrar todo o valor no mês de retorno, sem "
+                 "ratear em 12 meses nem esperar lançamento de real nos outros meses.")
+        c1,c2,c3=st.columns(3)
+        with c1: inicio_e=st.date_input("Data de Início do Projeto",value=_parse_date(p.get("inicio")),key=f"ini_{p['id']}",format="DD/MM/YYYY")
+        with c2: termino_e=st.date_input("Data de Fim do Projeto",value=_parse_date(p.get("termino")),key=f"trm_{p['id']}",format="DD/MM/YYYY")
+        with c3: mpr_e=st.date_input("Ganho a partir de",value=_parse_date(p.get("mes_primeiro_retorno")),key=f"mpr_{p['id']}",format="DD/MM/YYYY",help="Mês em que o projeto começa a gerar ganho financeiro — base do rateio em 12 meses.")
+        c1,c2=st.columns(2)
+        with c1: prev_e=st.number_input("Previsto Unidade (R$)",value=float(p["previsto_unidade"]),step=1000.0,format="%.2f",key=f"pv_{p['id']}")
+        with c2: status_e=st.selectbox("Status",STATUS_OPTS,index=STATUS_OPTS.index(p["status"]) if p["status"] in STATUS_OPTS else 0,key=f"st_{p['id']}")
+        st.markdown("**Acompanhamento** *(opcional)*")
+        c1,c2,c3=st.columns(3)
+        with c1: ativ_e=st.text_input("Atual Atribuição",value=p.get("atividade_atual","") or "",key=f"at_{p['id']}")
+        with c2: resp_ativ_e=st.text_input("Resp. Atribuição",value=p.get("onde_parado","") or "",key=f"ra_{p['id']}")
+        with c3: dt_e=st.text_input("Data Final",value=p.get("data_conclusao_ativ","") or "",placeholder="ex: 08/2026",key=f"dc_{p['id']}")
+        st.markdown("**Checklist**")
+        c1,c2,c3=st.columns(3)
+        with c1: ck_a3_e=st.checkbox("A3 e Plano",value=bool(p.get("check_a3")),key=f"ca_{p['id']}")
+        with c2: ck_mem_e=st.checkbox("Memória de Cálculo",value=bool(p.get("check_memoria")),key=f"cm_{p['id']}")
+        with c3: ck_for_e=st.checkbox("Formalizado com Custos",value=bool(p.get("check_formalizado")),key=f"cf_{p['id']}")
+        obs_e=st.text_area("Observações",value=p.get("obs","") or "",height=50,key=f"ob_{p['id']}")
+        st.markdown("---")
+        st.markdown("**🔵 Cost Control**")
+        if is_cc:
+            if links:
+                for lk in links: st.markdown(f"🔗 [{lk['titulo']}]({normalizar_url(lk['url'])})")
+            c1,c2=st.columns(2)
+            with c1:
+                _val_atual = p.get("validador_ok") or "Pendente"
+                _val_opts = ["Pendente","OK","NOK"]
+                val_ok=st.selectbox("Validador",_val_opts,index=_val_opts.index(_val_atual) if _val_atual in _val_opts else 0,key=f"vk_{p['id']}")
+                saving=st.number_input("Saving Validado (R$)",value=float(p.get("saving_validado") or 0),step=1000.0,format="%.2f",key=f"sv_{p['id']}")
+            with c2:
+                prev_c=st.number_input("Valor Calculado Custos (R$)",value=float(p.get("previsto_custos") or 0),step=1000.0,format="%.2f",key=f"pc_{p['id']}")
+        else:
+            val_ok=p.get("validador_ok","Pendente"); saving=p.get("saving_validado") or 0; prev_c=p.get("previsto_custos") or 0
+            vok_color=GREEN if val_ok=="OK" else (RED if val_ok=="NOK" else AMBER)
+            hc(f'<div style="background:#F4F6FB;border-radius:8px;padding:10px 14px;font-size:11px;display:flex;gap:24px;"><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Validador</span><br><b style="color:{vok_color};">{val_ok}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Calc. Custos</span><br><b>{fmt_brl(prev_c)}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Saving</span><br><b style="color:#20C997;">{fmt_brl(saving)}</b></div></div>')
+        col_s,col_d=st.columns([4,1])
+        with col_s: salvar_e=st.form_submit_button("💾 Salvar",use_container_width=True)
+        with col_d: excluir_e=st.form_submit_button("🗑️",use_container_width=True)
+
+    if salvar_e:
+        atualizar_projeto(p["id"],{"nome":nome_e,"tipo":tipo_e,"va_ggf":va_e,"responsavel":resp_e,"descricao":desc_e,"obs":obs_e,"status":status_e,"inicio":str(inicio_e),"termino":str(termino_e),"mes_primeiro_retorno":str(mpr_e),"previsto_unidade":prev_e,"previsto_custos":prev_c,"atividade_atual":ativ_e,"onde_parado":resp_ativ_e,"data_conclusao_ativ":dt_e,"check_a3":int(ck_a3_e),"check_memoria":int(ck_mem_e),"check_formalizado":int(ck_for_e),"validador_ok":val_ok,"saving_validado":saving,"ganho_unico":int(ganho_unico_e)},user["id"])
+        st.success("✅ Atualizado!"); st.session_state[f"edit_open_{p['id']}"]=False; st.rerun()
+    if excluir_e:
+        deletar_projeto(p["id"]); st.success("🗑️ Excluído."); st.rerun()
+
+    st.markdown("**🔗 Links**")
+    lks=get_links(p["id"])
+    for lk in lks:
+        c1,c2=st.columns([8,1])
+        with c1: st.markdown(f"🔗 [{lk['titulo']}]({normalizar_url(lk['url'])})")
+        with c2:
+            if st.button("✕",key=f"dlk_{lk['id']}"): del_link(lk["id"]); st.rerun()
+    with st.form(f"flk_{p['id']}",clear_on_submit=True):
+        c1,c2=st.columns([2,4])
+        with c1: tit_lk=st.text_input("Nome",key=f"lt_{p['id']}")
+        with c2: url_lk=st.text_input("URL",key=f"lu_{p['id']}")
+        if st.form_submit_button("➕ Link"):
+            if tit_lk and url_lk: add_link(p["id"],tit_lk,url_lk); st.success("✅"); st.rerun()
+
 def kpi_de_projetos(projs, ano_sel):
     """Recalcula os bignumbers (Previsto/Validado/Real/Extra DRE) restritos a
     um subconjunto de projetos — usado quando o filtro 'Projetos' está ativo,
@@ -331,10 +416,11 @@ def render(user, **colors):
        f'margin:20px 0 14px;display:inline-block;">Projetos da Unidade</p>')
 
     opcoes_status = list({p["status"] for p in projetos_uni}) + ["🔴 Atraso"]
-    c1,c2,c3=st.columns([2,2,4])
+    c1,c2,c3,c4=st.columns([2,2,2,3])
     with c1: f_st=st.multiselect("Status:",opcoes_status,default=[],placeholder="Todos",key="ud_fst")
     with c2: f_ti=st.multiselect("Tipo:",list({p["tipo"] for p in projetos_uni}),default=[],placeholder="Todos",key="ud_fti")
-    with c3: f_nm=st.text_input("🔍 Buscar",placeholder="Nome...",key="ud_fn")
+    with c3: f_cu=st.multiselect("Custos:",["Pendente","OK","NOK"],default=[],placeholder="Todos",key="ud_fcu")
+    with c4: f_nm=st.text_input("🔍 Buscar",placeholder="Nome...",key="ud_fn")
 
     pf=[proj_map[np] for np in proj_sel] if proj_sel else projetos_uni[:]
     if f_st:
@@ -343,6 +429,7 @@ def render(user, **colors):
         pf = [p for p in pf if (quer_atraso and linha_atrasada(p))
                               or (outros_status and p["status"] in outros_status)]
     if f_ti: pf=[p for p in pf if p["tipo"] in f_ti]
+    if f_cu: pf=[p for p in pf if (p.get("validador_ok") or "Pendente") in f_cu]
     if f_nm: pf=[p for p in pf if f_nm.lower() in p["nome"].lower()]
 
     atrasados=sum(1 for p in ([proj_map[np] for np in proj_sel] if proj_sel else projetos_uni) if linha_atrasada(p))
@@ -424,81 +511,9 @@ def render(user, **colors):
         if pode_ed:
             col_esp,col_edit=st.columns([10,2])
             with col_edit:
-                if st.button(f"✏️ Editar #{p['id']}",key=f"btn_ed_{p['id']}",use_container_width=True):
-                    st.session_state[f"edit_open_{p['id']}"]=not st.session_state.get(f"edit_open_{p['id']}",False)
-
+                toggle_editor_button(p, discreet=False)
             if st.session_state.get(f"edit_open_{p['id']}",False):
-                with st.form(f"fe_{p['id']}"):
-                    c1,c2,c3=st.columns(3)
-                    with c1: tipo_e=st.selectbox("Tipo",TIPOS_PROJETO,index=TIPOS_PROJETO.index(p["tipo"]) if p["tipo"] in TIPOS_PROJETO else 0,key=f"ti_{p['id']}")
-                    with c2: va_e=st.selectbox("VA/GGF",VA_GGF_OPTS,index=VA_GGF_OPTS.index(p["va_ggf"]) if p.get("va_ggf") in VA_GGF_OPTS else 0,key=f"va_{p['id']}")
-                    with c3: resp_e=st.text_input("Responsável",value=p.get("responsavel",""),key=f"re_{p['id']}")
-                    nome_e=st.text_input("Nome",value=p["nome"],key=f"nm_{p['id']}")
-                    desc_e=st.text_area("Descrição",value=p.get("descricao","") or "",height=60,key=f"ds_{p['id']}")
-                    st.markdown("**Datas e Valores**")
-                    ganho_unico_e = st.checkbox(
-                        "🎯 Ganho Único — retorno pontual, só no mês do 1º retorno",
-                        value=bool(p.get("ganho_unico")), key=f"gu_{p['id']}",
-                        help="Marque pra concentrar todo o valor no mês de retorno, sem "
-                             "ratear em 12 meses nem esperar lançamento de real nos outros meses.")
-                    c1,c2,c3=st.columns(3)
-                    with c1: inicio_e=st.date_input("Data de Início do Projeto",value=_parse_date(p.get("inicio")),key=f"ini_{p['id']}",format="DD/MM/YYYY")
-                    with c2: termino_e=st.date_input("Data de Fim do Projeto",value=_parse_date(p.get("termino")),key=f"trm_{p['id']}",format="DD/MM/YYYY")
-                    with c3: mpr_e=st.date_input("Ganho a partir de",value=_parse_date(p.get("mes_primeiro_retorno")),key=f"mpr_{p['id']}",format="DD/MM/YYYY",help="Mês em que o projeto começa a gerar ganho financeiro — base do rateio em 12 meses.")
-                    c1,c2=st.columns(2)
-                    with c1: prev_e=st.number_input("Previsto Unidade (R$)",value=float(p["previsto_unidade"]),step=1000.0,format="%.2f",key=f"pv_{p['id']}")
-                    with c2: status_e=st.selectbox("Status",STATUS_OPTS,index=STATUS_OPTS.index(p["status"]) if p["status"] in STATUS_OPTS else 0,key=f"st_{p['id']}")
-                    st.markdown("**Acompanhamento** *(opcional)*")
-                    c1,c2,c3=st.columns(3)
-                    with c1: ativ_e=st.text_input("Atual Atribuição",value=p.get("atividade_atual","") or "",key=f"at_{p['id']}")
-                    with c2: resp_ativ_e=st.text_input("Resp. Atribuição",value=p.get("onde_parado","") or "",key=f"ra_{p['id']}")
-                    with c3: dt_e=st.text_input("Data Final",value=p.get("data_conclusao_ativ","") or "",placeholder="ex: 08/2026",key=f"dc_{p['id']}")
-                    st.markdown("**Checklist**")
-                    c1,c2,c3=st.columns(3)
-                    with c1: ck_a3_e=st.checkbox("A3 e Plano",value=bool(p.get("check_a3")),key=f"ca_{p['id']}")
-                    with c2: ck_mem_e=st.checkbox("Memória de Cálculo",value=bool(p.get("check_memoria")),key=f"cm_{p['id']}")
-                    with c3: ck_for_e=st.checkbox("Formalizado com Custos",value=bool(p.get("check_formalizado")),key=f"cf_{p['id']}")
-                    obs_e=st.text_area("Observações",value=p.get("obs","") or "",height=50,key=f"ob_{p['id']}")
-                    st.markdown("---")
-                    st.markdown("**🔵 Cost Control**")
-                    if is_cc:
-                        if links:
-                            for lk in links: st.markdown(f"🔗 [{lk['titulo']}]({normalizar_url(lk['url'])})")
-                        c1,c2=st.columns(2)
-                        with c1:
-                            _val_atual = p.get("validador_ok") or "Pendente"
-                            _val_opts = ["Pendente","OK","NOK"]
-                            val_ok=st.selectbox("Validador",_val_opts,index=_val_opts.index(_val_atual) if _val_atual in _val_opts else 0,key=f"vk_{p['id']}")
-                            saving=st.number_input("Saving Validado (R$)",value=float(p.get("saving_validado") or 0),step=1000.0,format="%.2f",key=f"sv_{p['id']}")
-                        with c2:
-                            prev_c=st.number_input("Valor Calculado Custos (R$)",value=float(p.get("previsto_custos") or 0),step=1000.0,format="%.2f",key=f"pc_{p['id']}")
-                    else:
-                        val_ok=p.get("validador_ok","Pendente"); saving=p.get("saving_validado") or 0; prev_c=p.get("previsto_custos") or 0
-                        vok_color=GREEN if val_ok=="OK" else (RED if val_ok=="NOK" else AMBER)
-                        hc(f'<div style="background:#F4F6FB;border-radius:8px;padding:10px 14px;font-size:11px;display:flex;gap:24px;"><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Validador</span><br><b style="color:{vok_color};">{val_ok}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Calc. Custos</span><br><b>{fmt_brl(prev_c)}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Saving</span><br><b style="color:#20C997;">{fmt_brl(saving)}</b></div></div>')
-                    col_s,col_d=st.columns([4,1])
-                    with col_s: salvar_e=st.form_submit_button("💾 Salvar",use_container_width=True)
-                    with col_d: excluir_e=st.form_submit_button("🗑️",use_container_width=True)
-
-                if salvar_e:
-                    atualizar_projeto(p["id"],{"nome":nome_e,"tipo":tipo_e,"va_ggf":va_e,"responsavel":resp_e,"descricao":desc_e,"obs":obs_e,"status":status_e,"inicio":str(inicio_e),"termino":str(termino_e),"mes_primeiro_retorno":str(mpr_e),"previsto_unidade":prev_e,"previsto_custos":prev_c,"atividade_atual":ativ_e,"onde_parado":resp_ativ_e,"data_conclusao_ativ":dt_e,"check_a3":int(ck_a3_e),"check_memoria":int(ck_mem_e),"check_formalizado":int(ck_for_e),"validador_ok":val_ok,"saving_validado":saving,"ganho_unico":int(ganho_unico_e)},user["id"])
-                    st.success("✅ Atualizado!"); st.session_state[f"edit_open_{p['id']}"]=False; st.rerun()
-                if excluir_e:
-                    deletar_projeto(p["id"]); st.success("🗑️ Excluído."); st.rerun()
-
-                st.markdown("**🔗 Links**")
-                lks=get_links(p["id"])
-                for lk in lks:
-                    c1,c2=st.columns([8,1])
-                    with c1: st.markdown(f"🔗 [{lk['titulo']}]({normalizar_url(lk['url'])})")
-                    with c2:
-                        if st.button("✕",key=f"dlk_{lk['id']}"): del_link(lk["id"]); st.rerun()
-                with st.form(f"flk_{p['id']}",clear_on_submit=True):
-                    c1,c2=st.columns([2,4])
-                    with c1: tit_lk=st.text_input("Nome",key=f"lt_{p['id']}")
-                    with c2: url_lk=st.text_input("URL",key=f"lu_{p['id']}")
-                    if st.form_submit_button("➕ Link"):
-                        if tit_lk and url_lk: add_link(p["id"],tit_lk,url_lk); st.success("✅"); st.rerun()
+                render_editor_form(p, user, is_cc, GREEN, AMBER, RED)
 
         st.markdown("<hr style='margin:4px 0;border-color:#EEF0F3;'>",unsafe_allow_html=True)
 
@@ -507,4 +522,14 @@ def render(user, **colors):
     if camp:
         with st.expander(f"🏆 {len(camp)} Projeto(s) Campeão(ões)",expanded=False):
             for p in camp:
-                st.markdown(f"🏆 **{p['nome']}** · {p['tipo']} · Campeão desde {str(p.get('campeao_em',''))[:7]} · Saving: {fmt_brl(p['saving_validado'])}")
+                c_info, c_pencil = st.columns([11,1])
+                with c_info:
+                    st.markdown(f"🏆 **#{p['id']} — {p['nome']}** · {p['tipo']} · "
+                                f"Campeão desde {str(p.get('campeao_em',''))[:7]} · "
+                                f"Saving: {fmt_brl(p['saving_validado'])}")
+                if pode_ed:
+                    with c_pencil:
+                        toggle_editor_button(p, discreet=True)
+                    if st.session_state.get(f"edit_open_{p['id']}",False):
+                        render_editor_form(p, user, is_cc, GREEN, AMBER, RED)
+                st.markdown("<hr style='margin:2px 0;border-color:#F5F5F5;'>",unsafe_allow_html=True)
