@@ -160,8 +160,10 @@ def render(user, **colors):
             mes_sel = st.selectbox("Mês de referência:", range(1,13),
                 format_func=lambda m: MESES_PT[m-1], key="cc_mes")
 
-        # Todos projetos DRE aprovados das unidades selecionadas
-        todos_ap = [p for p in listar_projetos()
+        # Todos projetos DRE aprovados das unidades selecionadas — inclui
+        # Campeão: um projeto (ex.: Ganho Único) pode formar antes mesmo de
+        # Custos ter lançado o real do próprio mês, e não pode ficar preso.
+        todos_ap = [p for p in listar_projetos(incluir_campeao=True)
                     if p.get("validador_ok")=="OK"
                     and not is_extra_dre(p["tipo"])
                     and p["unidade_nome"] in unis_real]
