@@ -791,19 +791,31 @@ def distribuicao_por_tipo(ano, unidade_nome=None):
             tipos[t]["real"] += l["valor_real"]
     return tipos
 
-def resumo_por_pilar(unidade_nome=None):
-    """Qtd de projetos, saving previsto/validado totais (não rateados) e
-    real acumulado HISTÓRICO (todos os anos) por tipo de projeto."""
+def resumo_por_pilar(unidade_nome=None, ano=None):
+    """Qtd de projetos, saving previsto/validado e real por tipo de projeto.
+    Com 'ano' informado, tudo fica restrito àquele ano (rateado, igual ao
+    resto do Dashboard). Sem 'ano', mantém o modo histórico original —
+    valores totais (não rateados) somando todos os anos."""
     projetos = listar_projetos(unidade_nome, incluir_campeao=True)
     pilares = {}
     for p in projetos:
         t = p["tipo"]
+        if ano is None:
+            prev_ano = p["previsto_unidade"] or 0
+            val_ano = p["saving_validado"] or 0
+        else:
+            curva = get_curva_unidade(p["id"])
+            prev_ano = sum(v for (y,m),v in curva.items() if y==ano)
+            curva_s = get_curva_saving(p["id"])
+            val_ano = sum(v for (y,m),v in curva_s.items() if y==ano)
+            if prev_ano == 0 and val_ano == 0:
+                continue  # projeto sem curva nesse ano — não entra na contagem
         d = pilares.setdefault(t, {"qtd":0,"previsto":0.0,"validado":0.0,
                                     "real_total":0.0,"extra":is_extra_dre(t)})
         d["qtd"] += 1
-        d["previsto"] += p["previsto_unidade"] or 0
-        d["validado"] += p["saving_validado"] or 0
-    for l in get_lancamentos(unidade_nome=unidade_nome):
+        d["previsto"] += prev_ano
+        d["validado"] += val_ano
+    for l in get_lancamentos(unidade_nome=unidade_nome, ano=ano):
         t = l.get("tipo","")
         if t in pilares:
             pilares[t]["real_total"] += l["valor_real"]
