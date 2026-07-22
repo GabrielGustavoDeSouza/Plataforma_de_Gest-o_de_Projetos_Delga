@@ -466,7 +466,9 @@ def render(user, **colors):
                             for lk in links: st.markdown(f"🔗 [{lk['titulo']}]({normalizar_url(lk['url'])})")
                         c1,c2=st.columns(2)
                         with c1:
-                            val_ok=st.selectbox("Validador",["Pendente","OK","NOK"],index=["Pendente","OK","NOK"].index(p.get("validador_ok","Pendente")),key=f"vk_{p['id']}")
+                            _val_atual = p.get("validador_ok") or "Pendente"
+                            _val_opts = ["Pendente","OK","NOK"]
+                            val_ok=st.selectbox("Validador",_val_opts,index=_val_opts.index(_val_atual) if _val_atual in _val_opts else 0,key=f"vk_{p['id']}")
                             saving=st.number_input("Saving Validado (R$)",value=float(p.get("saving_validado") or 0),step=1000.0,format="%.2f",key=f"sv_{p['id']}")
                         with c2:
                             prev_c=st.number_input("Valor Calculado Custos (R$)",value=float(p.get("previsto_custos") or 0),step=1000.0,format="%.2f",key=f"pc_{p['id']}")
