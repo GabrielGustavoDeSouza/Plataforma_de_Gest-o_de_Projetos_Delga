@@ -759,7 +759,12 @@ def saving_por_unidade(ano, tipo_unidade=None, metrica="validado"):
     resultado = []
     for u in unidades:
         total = 0.0
-        for p in listar_projetos(u["nome"]):
+        # 'real' precisa incluir projetos já formados (Campeão) — o dinheiro
+        # já entrou, não deveria sumir do total só porque o projeto graduou.
+        # Os demais indicadores (previsto/custos/validado) continuam olhando
+        # só o portfólio ativo, igual ao funil.
+        projs = listar_projetos(u["nome"], incluir_campeao=(metrica == "real"))
+        for p in projs:
             if is_extra_dre(p["tipo"]): continue
             if metrica == "real":
                 total += sum(l["valor_real"] for l in get_lancamentos(proj_id=p["id"], ano=ano))
