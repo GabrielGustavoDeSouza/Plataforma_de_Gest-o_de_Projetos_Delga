@@ -10,6 +10,143 @@ from database import (listar_usuarios, criar_usuario, editar_usuario,
                       exportar_backup_completo, restaurar_backup_completo,
                       TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS, PERFIS_LBL)
 
+def _norm_txt(s):
+    s = str(s or "").strip().lower()
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+def _ler_base_consolidada(xls_raw):
+    """Lê o formato 'Base Consolidada' (gerado fora da plataforma: aba
+    'Projetos' com linhas de título antes do cabeçalho, colunas tipo
+    'Valor Previsto Unidade (R$)', meses no formato 'jan/26') e converte
+    pro mesmo formato de dict que exportar_backup_completo produz — assim
+    dá pra reusar restaurar_backup_completo sem duplicar a lógica de
+    restauração. xls_raw = dict {aba: DataFrame} lido com header=None.
+    Retorna (linhas_proj, linhas_metas) ou (None, None) se não reconhecer."""
+    import re
+    df_p = xls_raw.get("Projetos")
+    if df_p is None: return None, None
+
+    header_row = None
+    for r in range(min(len(df_p), 15)):
+        for c in range(df_p.shape[1]):
+            v = df_p.iat[r, c]
+            if v and _norm_txt(v) == "nome do projeto":
+                header_row = r; break
+        if header_row is not None: break
+    if header_row is None:
+        return None, None
+
+    colunas = [str(v).strip() if v is not None else f"col{c}" for c, v in enumerate(df_p.iloc[header_row])]
+    dados = df_p.iloc[header_row + 1:].copy()
+    dados.columns = colunas
+
+    def achar(*padroes):
+        for c in colunas:
+            if _norm_txt(c) in padroes: return c
+        for c in colunas:
+            cn = _norm_txt(c)
+            if any(p in cn for p in padroes): return c
+        return None
+
+    # Colunas de mês "Real": a Base Consolidada guarda a data real (oculta)
+    # na linha logo ACIMA do cabeçalho — ler por posição/data evita
+    # depender do idioma do texto formatado do cabeçalho (jan/mar/mai... vs
+    # jan/mar/may — Excel/LibreOffice podem recalcular em outro idioma).
+    real_cols = {}
+    if header_row > 0:
+        for c in range(df_p.shape[1]):
+            v = df_p.iat[header_row - 1, c]
+            if isinstance(v, (pd.Timestamp, datetime)):
+                real_cols[colunas[c]] = f"Real {v.month:02d}/{v.year}"
+    if not real_cols:
+        # arquivo sem a linha de data oculta — tenta pelo texto do cabeçalho
+        # (aceita abreviação em PT ou EN)
+        import re
+        MESES_MAP = {a: i + 1 for i, a in enumerate(
+            ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"])}
+        MESES_MAP.update({a: i + 1 for i, a in enumerate(
+            ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])})
+        for c in colunas:
+            cn = _norm_txt(c)
+            m = re.match(r"^([a-z]{3})/(\d{2,4})$", cn)
+            if m and m.group(1) in MESES_MAP:
+                ano_s = m.group(2)
+                ano = int(ano_s) if len(ano_s) == 4 else 2000 + int(ano_s)
+                real_cols[c] = f"Real {MESES_MAP[m.group(1)]:02d}/{ano}"
+                continue
+            m2 = re.match(r"^real\s+(\d{1,2})/(\d{4})$", cn)
+            if m2:
+                real_cols[c] = f"Real {int(m2.group(1)):02d}/{m2.group(2)}"
+
+    col_map = {
+        "Unidade": achar("unidade"),
+        "Tipo": achar("tipo"),
+        "VA/GGF": achar("va/ggf", "va ggf"),
+        "Descrição": achar("descricao"),
+        "Responsável": achar("responsavel"),
+        "Data Início": achar("data inicio"),
+        "Data Fim": achar("data fim"),
+        "Mês Primeiro Retorno": achar("mes primeiro retorno"),
+        "Ganho Único": achar("ganho unico"),
+        "Valor Previsto": achar("valor previsto unidade", "valor previsto"),
+        "Valor Calculado Custos": achar("valor calculado custos"),
+        "Saving Validado": achar("saving validado"),
+        "Validação": achar("validacao"),
+        "Status": achar("status"),
+        "Check A3": achar("check a3"),
+        "Check Memória": achar("check memoria"),
+        "Check Formalizado": achar("check formalizado"),
+        "Observações": achar("observacoes", "obs"),
+    }
+    col_nome = achar("nome do projeto")
+
+    linhas_proj = []
+    for _, row in dados.iterrows():
+        nome = row.get(col_nome) if col_nome else None
+        if nome is None or (isinstance(nome, float) and nome != nome) or not str(nome).strip():
+            continue
+        linha = {"Nome do Projeto": str(nome).strip()}
+        for chave_padrao, col_origem in col_map.items():
+            if not col_origem: continue
+            linha[chave_padrao] = row.get(col_origem, "")
+        for col_origem, chave_real in real_cols.items():
+            v = row.get(col_origem)
+            if v is None or (isinstance(v, float) and v != v):
+                continue
+            if isinstance(v, str) and not v.strip():
+                continue  # blank cell rendered as whitespace/nbsp by some spreadsheet apps
+            linha[chave_real] = v
+        linhas_proj.append(linha)
+
+    linhas_metas = []
+    df_m = xls_raw.get("Metas")
+    if df_m is not None:
+        header_row_m = None
+        for r in range(min(len(df_m), 15)):
+            for c in range(df_m.shape[1]):
+                v = df_m.iat[r, c]
+                if v and "valor da meta" in _norm_txt(v):
+                    header_row_m = r; break
+            if header_row_m is not None: break
+        if header_row_m is not None:
+            colm = [str(v).strip() if v is not None else f"col{c}" for c, v in enumerate(df_m.iloc[header_row_m])]
+            dm = df_m.iloc[header_row_m + 1:].copy(); dm.columns = colm
+            col_u = next((c for c in colm if _norm_txt(c) == "unidade"), None)
+            col_a = next((c for c in colm if _norm_txt(c) == "ano"), None)
+            col_v = next((c for c in colm if "valor da meta" in _norm_txt(c)), None)
+            if col_u and col_a and col_v:
+                for _, row in dm.iterrows():
+                    u = row.get(col_u)
+                    if u is None or not str(u).strip(): continue
+                    try:
+                        ano = int(row.get(col_a)); val = float(row.get(col_v))
+                    except (TypeError, ValueError):
+                        continue
+                    if val > 0:
+                        linhas_metas.append({"Unidade": str(u).strip(), "Ano": ano, "Valor da Meta": val})
+
+    return linhas_proj, linhas_metas
+
 def render(user, **colors):
     NAVY=colors.get("NAVY","#0B0F2B"); RED=colors.get("RED","#D93B3B")
     if user["perfil"] != "admin":
@@ -189,20 +326,42 @@ def render(user, **colors):
         st.warning("⚠️ Restaurar **apaga todos os projetos e metas atuais** e recarrega exatamente "
                   "o que estiver no arquivo. Usuários que já existirem (mesmo e-mail) não são "
                   "apagados nem duplicados — só os que faltarem são recriados. Não soma com o que já existe.")
-        arq_backup = st.file_uploader("Enviar arquivo de backup (.xlsx)", type=["xlsx"], key="up_backup")
+        st.caption("Aceita tanto o backup nativo da plataforma quanto uma **Base Consolidada** "
+                  "(aba 'Projetos' com colunas como 'Valor Previsto Unidade (R$)' e meses tipo "
+                  "'jan/26') — o formato é detectado automaticamente.")
+        arq_backup = st.file_uploader("Enviar arquivo de backup ou Base Consolidada (.xlsx)", type=["xlsx"], key="up_backup")
 
         if arq_backup is not None:
             try:
-                xls_b = pd.read_excel(arq_backup, sheet_name=None)
+                xls_b = pd.read_excel(arq_backup, sheet_name=None, header=0)
                 df_p = xls_b.get("Projetos")
-                df_m = xls_b.get("Metas")
-                df_u = xls_b.get("Usuarios")
-                if df_p is None:
-                    st.error("Esse arquivo não parece um backup da plataforma — falta a aba 'Projetos'.")
-                else:
+                formato = None
+                linhas_proj_r, linhas_metas_r, linhas_usuarios_r = [], [], []
+
+                if df_p is not None and "Valor Previsto" in df_p.columns and "Nome do Projeto" in df_p.columns:
+                    formato = "nativo"
+                    df_m = xls_b.get("Metas")
+                    df_u = xls_b.get("Usuarios")
                     linhas_proj_r = df_p.fillna("").to_dict("records")
                     linhas_metas_r = df_m.fillna("").to_dict("records") if df_m is not None else []
                     linhas_usuarios_r = df_u.fillna("").to_dict("records") if df_u is not None else []
+                else:
+                    arq_backup.seek(0)
+                    xls_raw = pd.read_excel(arq_backup, sheet_name=None, header=None)
+                    linhas_proj_conv, linhas_metas_conv = _ler_base_consolidada(xls_raw)
+                    if linhas_proj_conv:
+                        formato = "consolidada"
+                        linhas_proj_r = linhas_proj_conv
+                        linhas_metas_r = linhas_metas_conv or []
+
+                if formato is None:
+                    st.error("Esse arquivo não parece um backup nem uma Base Consolidada da plataforma "
+                             "— não encontrei a coluna 'Nome do Projeto' na aba 'Projetos'.")
+                else:
+                    if formato == "consolidada":
+                        st.info("📋 Reconheci o formato de **Base Consolidada** — convertido automaticamente "
+                               "pro formato interno antes de restaurar. Usuários não vêm desse tipo de "
+                               "arquivo, então continuam intactos.")
                     n_meses_r = len([c for c in linhas_proj_r[0].keys() if str(c).startswith("Real ")]) if linhas_proj_r else 0
                     st.markdown(f"**Prévia:** {len(linhas_proj_r)} projeto(s) (com colunas de real pra "
                               f"até {n_meses_r} mês(es)), {len(linhas_metas_r)} meta(s), "
