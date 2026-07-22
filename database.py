@@ -609,7 +609,7 @@ def alertas_lancamento(unidade_nome=None):
     """Meses já vencidos sem lançamento de real — apenas projetos já
     aprovados por Custos (validador_ok='OK'), pois só esses têm curva
     de acompanhamento de real ativa."""
-    projetos = listar_projetos(unidade_nome)
+    projetos = listar_projetos(unidade_nome, incluir_campeao=True)
     hoje = date.today(); alertas = []
     for p in projetos:
         if is_extra_dre(p["tipo"]): continue
@@ -656,7 +656,7 @@ def resetar_projetos_teste():
 
 def kpis_unidade(unidade_nome, ano):
     get_engine()
-    projetos = listar_projetos(unidade_nome)
+    projetos = listar_projetos(unidade_nome, incluir_campeao=True)
     meta     = get_meta(unidade_nome, ano)
     hoje     = date.today()
 
@@ -722,7 +722,7 @@ def funil_conversao(ano, unidade_nome=None):
     metas = get_todas_metas(ano)
     meta = sum(m["valor"] for m in metas if (unidade_nome is None or m["nome"]==unidade_nome))
 
-    projetos = listar_projetos(unidade_nome)
+    projetos = listar_projetos(unidade_nome, incluir_campeao=True)
     previsto = validado = 0.0
     for p in projetos:
         curva = get_curva_unidade(p["id"])
@@ -759,12 +759,9 @@ def saving_por_unidade(ano, tipo_unidade=None, metrica="validado"):
     resultado = []
     for u in unidades:
         total = 0.0
-        # 'real' precisa incluir projetos já formados (Campeão) — o dinheiro
-        # já entrou, não deveria sumir do total só porque o projeto graduou.
-        # Os demais indicadores (previsto/custos/validado) continuam olhando
-        # só o portfólio ativo, igual ao funil.
-        projs = listar_projetos(u["nome"], incluir_campeao=(metrica == "real"))
-        for p in projs:
+        # Campeão é só uma questão de exibição na lista de cartões — nunca
+        # deveria tirar dinheiro (já realizado ou já validado) dos totais.
+        for p in listar_projetos(u["nome"], incluir_campeao=True):
             if is_extra_dre(p["tipo"]): continue
             if metrica == "real":
                 total += sum(l["valor_real"] for l in get_lancamentos(proj_id=p["id"], ano=ano))
@@ -778,7 +775,7 @@ def saving_por_unidade(ano, tipo_unidade=None, metrica="validado"):
 
 def distribuicao_por_tipo(ano, unidade_nome=None):
     """Previsto/Validado/Real por tipo de projeto, rateados no ano informado."""
-    projetos = listar_projetos(unidade_nome)
+    projetos = listar_projetos(unidade_nome, incluir_campeao=True)
     tipos = {}
     for p in projetos:
         t = p["tipo"]
@@ -797,7 +794,7 @@ def distribuicao_por_tipo(ano, unidade_nome=None):
 def resumo_por_pilar(unidade_nome=None):
     """Qtd de projetos, saving previsto/validado totais (não rateados) e
     real acumulado HISTÓRICO (todos os anos) por tipo de projeto."""
-    projetos = listar_projetos(unidade_nome)
+    projetos = listar_projetos(unidade_nome, incluir_campeao=True)
     pilares = {}
     for p in projetos:
         t = p["tipo"]
@@ -816,7 +813,7 @@ def get_carry_over(ano_ref, unidade_nome=None):
     """Meses da curva de projetos DRE que caem FORA do ano de referência —
     parte do previsto que 'sai' do ano vigente (geralmente por causa de um
     'Ganho a partir de' fora de janeiro, que joga meses pro ano seguinte)."""
-    projetos = listar_projetos(unidade_nome)
+    projetos = listar_projetos(unidade_nome, incluir_campeao=True)
     fora = []
     for p in projetos:
         if is_extra_dre(p["tipo"]): continue
