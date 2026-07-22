@@ -488,16 +488,30 @@ def deletar_projeto(proj_id):
     conn.commit(); conn.close()
 
 def verificar_campeoes():
+    """Marca como 'campeão' (arquivado, some das listas ativas) só projetos
+    que já passaram pelo fluxo completo: validados por Custos (validador_ok
+    = 'OK') E cuja curva de retorno já se encerrou. Ganho Único encerra logo
+    no mês seguinte ao próprio retorno (curva de 1 mês só); projeto normal
+    encerra 12 meses depois. Nunca arquiva um projeto ainda Pendente/NOK —
+    senão ele desapareceria da Fila de Aprovação antes mesmo de ser validado."""
     conn = get_conn()
     projetos = conn.execute(
-        "SELECT id,mes_primeiro_retorno FROM projetos WHERE campeao=0 AND mes_primeiro_retorno IS NOT NULL"
+        "SELECT id,mes_primeiro_retorno,ganho_unico FROM projetos "
+        "WHERE campeao=0 AND mes_primeiro_retorno IS NOT NULL AND validador_ok='OK'"
     ).fetchall()
     hoje = date.today()
     for p in projetos:
         try:
             mpr = datetime.strptime(str(p["mes_primeiro_retorno"])[:7],"%Y-%m").date()
-            ano_c = mpr.year+(mpr.month+11)//12
-            mes_c = (mpr.month+11)%12+1
+            if p["ganho_unico"]:
+                # Ganho Único: a curva inteira é o próprio mês de retorno, então
+                # "forma" logo no mês seguinte — não espera 12 meses como os
+                # projetos com rateio normal.
+                ano_c = mpr.year + mpr.month // 12
+                mes_c = mpr.month % 12 + 1
+            else:
+                ano_c = mpr.year+(mpr.month+11)//12
+                mes_c = (mpr.month+11)%12+1
             if hoje >= date(ano_c,mes_c,1):
                 conn.execute("UPDATE projetos SET campeao=1,campeao_em=? WHERE id=?",
                              (hoje.isoformat(),p["id"]))
@@ -726,19 +740,32 @@ def funil_conversao(ano, unidade_nome=None):
     return {"meta":meta, "previsto":previsto, "validado":validado, "real":real,
             "pct_meta": (real/meta*100) if meta>0 else 0}
 
-def saving_por_unidade(ano, tipo_unidade=None):
-    """Saving validado por unidade (rateado no ano), opcionalmente filtrado
-    por tipo de unidade ('planta' ou 'area'). Só retorna unidades com valor."""
+def saving_por_unidade(ano, tipo_unidade=None, metrica="validado"):
+    """Distribuição por unidade de um indicador financeiro, opcionalmente
+    filtrado por tipo de unidade ('planta' ou 'area'). Só retorna unidades
+    com valor > 0.
+    metrica:
+      'previsto' -> Previsto por Unidade (rateado no ano)
+      'custos'   -> Calculado por Custos (rateado no ano)
+      'validado' -> Saving Validado (rateado no ano)
+      'real'     -> Real até o Momento (soma direta dos lançamentos no ano)
+    """
     unidades = listar_unidades()
     if tipo_unidade:
         unidades = [u for u in unidades if u["tipo"]==tipo_unidade]
+    curva_fn = {"previsto": get_curva_unidade,
+                "custos": get_curva_custos,
+                "validado": get_curva_saving}.get(metrica)
     resultado = []
     for u in unidades:
         total = 0.0
         for p in listar_projetos(u["nome"]):
             if is_extra_dre(p["tipo"]): continue
-            curva_s = get_curva_saving(p["id"])
-            total += sum(v for (y,m),v in curva_s.items() if y==ano)
+            if metrica == "real":
+                total += sum(l["valor_real"] for l in get_lancamentos(proj_id=p["id"], ano=ano))
+            else:
+                curva = curva_fn(p["id"])
+                total += sum(v for (y,m),v in curva.items() if y==ano)
         if total > 0:
             resultado.append({"unidade":u["nome"], "valor":total})
     resultado.sort(key=lambda x:-x["valor"])
