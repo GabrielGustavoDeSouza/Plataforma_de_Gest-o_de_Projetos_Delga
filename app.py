@@ -310,7 +310,7 @@ def build_distribuicao(dist, series_sel):
                        font=dict(family="Inter", size=11))
     return fig
 
-def render_pilar_table(pilares):
+def render_pilar_table(pilares, titulo_real="Até o Momento"):
     rows=""; tq=tp=tv=tr=0
     for tipo, d in sorted(pilares.items(), key=lambda x:-x[1]["previsto"]):
         badge = ('<span style="color:#9B59B6;">↷ N/DRE</span>' if d["extra"]
@@ -331,14 +331,14 @@ def render_pilar_table(pilares):
     hc(f"""<table class="dt"><thead><tr>
       <th>Pilar</th><th>Qtd</th><th style="text-align:right;">Saving Previsto</th>
       <th style="text-align:right;">Saving Validado</th>
-      <th style="text-align:right;">Até o Momento</th>
+      <th style="text-align:right;">{titulo_real}</th>
     </tr></thead><tbody>{rows}</tbody></table>""")
 
 # ── Dashboard Global ──────────────────────────────────────────────────────────
 if pagina == "🏠 Dashboard Global":
     init_db()
     unidades   = listar_unidades()
-    todos_proj = listar_projetos()
+    todos_proj = listar_projetos(incluir_campeao=True)
 
     c_tit, c_uni, c_nav = st.columns([3,2,1])
     with c_tit:
@@ -444,14 +444,14 @@ if pagina == "🏠 Dashboard Global":
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sc">', unsafe_allow_html=True)
-    st.markdown(f'<span class="st">Resumo por Pilar — {titulo_escopo}</span>', unsafe_allow_html=True)
-    pilares = resumo_por_pilar(unidade_filtro)
+    st.markdown(f'<span class="st">Resumo por Pilar — {titulo_escopo}, {ano_dash}</span>', unsafe_allow_html=True)
+    pilares = resumo_por_pilar(unidade_filtro, ano_dash)
     if pilares:
-        render_pilar_table(pilares)
+        render_pilar_table(pilares, titulo_real=f"Real {ano_dash}")
     else:
-        st.caption("Nenhum projeto cadastrado ainda.")
+        st.caption(f"Nenhum projeto com curva prevista em {ano_dash}.")
     st.markdown(f'<div style="font-size:10px;color:{SILVER};margin-top:6px;">'
-               f'"Até o Momento" é o acumulado histórico de real lançado, considerando todos os anos.</div>',
+               f'Valores rateados e restritos a {ano_dash} — mesmo critério do resto do Dashboard.</div>',
                unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -496,15 +496,30 @@ if pagina == "🏠 Dashboard Global":
 
     # Lista global de projetos
     st.markdown('<div class="sc">', unsafe_allow_html=True)
-    st.markdown('<span class="st">Todos os Projetos</span>', unsafe_allow_html=True)
-    c1,c2,c3,c4=st.columns([2,2,2,3])
-    with c1: f_uni=st.multiselect("Unidade:",[u["nome"] for u in unidades],default=([unidade_filtro] if unidade_filtro else []),placeholder="Todas",key="gp_uni")
+    st.markdown(f'<span class="st">Todos os Projetos — {titulo_escopo}, {ano_dash}</span>', unsafe_allow_html=True)
+
+    if unidade_filtro:
+        # Unidade já veio do seletor lá em cima — não duplica o filtro aqui
+        # pra não ficar um preso e o outro solto.
+        c2,c3,c4=st.columns([2,2,4])
+        f_uni=[unidade_filtro]
+    else:
+        c1,c2,c3,c4=st.columns([2,2,2,3])
+        with c1: f_uni=st.multiselect("Unidade:",[u["nome"] for u in unidades],default=[],placeholder="Todas",key="gp_uni")
     with c2: f_st=st.multiselect("Status:",list({p["status"] for p in todos_proj}),default=[],placeholder="Todos",key="gp_st")
     with c3: f_ord=st.selectbox("Ordenar:",["Unidade","Maior Previsto","Atrasados primeiro"],key="gp_ord")
     with c4: f_nm=st.text_input("🔍 Buscar",placeholder="Nome...",key="gp_nm")
 
     pf=todos_proj[:]
     if f_uni: pf=[p for p in pf if p["unidade_nome"] in f_uni]
+    # Ano: só entram projetos cuja curva (previsto ou saving) toca o ano
+    # selecionado — mesmo critério usado no resto do Dashboard. Se não
+    # houver nenhum projeto nesse ano, a lista fica vazia mesmo.
+    def _toca_ano(p, ano):
+        if any(y==ano for (y,m) in get_curva_unidade(p["id"]).keys()): return True
+        if any(y==ano for (y,m) in get_curva_saving(p["id"]).keys()): return True
+        return False
+    pf=[p for p in pf if _toca_ano(p, ano_dash)]
     if f_st:  pf=[p for p in pf if p["status"] in f_st]
     if f_nm:  pf=[p for p in pf if f_nm.lower() in p["nome"].lower()]
     ord_map={"Unidade":lambda p:p["unidade_nome"],
@@ -514,6 +529,8 @@ if pagina == "🏠 Dashboard Global":
 
     atrasados=sum(1 for p in pf if linha_atrasada(p))
     st.caption(f"{len(pf)} projetos" + (f" · ⚠️ {atrasados} atrasado(s)" if atrasados else ""))
+    if not pf:
+        st.info(f"Nenhum projeto com curva prevista em {ano_dash} nesse filtro.")
 
     sc_map={"✓ Concluído":GREEN,"⏳ Em Execução":AMBER,"📝 Não iniciado":SILVER,"⚠️ Suspenso":RED}
     for p in pf:
