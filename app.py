@@ -394,24 +394,42 @@ if pagina == "🏠 Dashboard Global":
 </div>""")
 
     if not unidade_filtro:
+        METRICAS_DONUT = [("previsto", "Previsto por Unidade"),
+                           ("custos", "Calculado por Custos"),
+                           ("real", "Real até o Momento")]
+        if "dash_donut_metrica" not in st.session_state:
+            st.session_state["dash_donut_metrica"] = "previsto"
+        hc(f'<p style="font-size:10px;font-weight:600;color:{SILVER};text-transform:uppercase;'
+           f'letter-spacing:.6px;margin:4px 0 6px;">Indicador dos gráficos de rosca</p>')
+        cols_m = st.columns(3)
+        for i, (chave_m, label_m) in enumerate(METRICAS_DONUT):
+            with cols_m[i]:
+                ativo_m = st.session_state["dash_donut_metrica"] == chave_m
+                if st.button(label_m, key=f"donut_m_{chave_m}", use_container_width=True,
+                             type="primary" if ativo_m else "secondary"):
+                    st.session_state["dash_donut_metrica"] = chave_m
+                    st.rerun()
+        metrica_donut = st.session_state["dash_donut_metrica"]
+        label_donut = dict(METRICAS_DONUT)[metrica_donut]
+
         d1, d2 = st.columns(2)
         with d1:
             st.markdown('<div class="sc">', unsafe_allow_html=True)
-            st.markdown('<span class="st">Representatividade — Plantas</span>', unsafe_allow_html=True)
-            dados_planta = saving_por_unidade(ano_dash, "planta")
+            st.markdown(f'<span class="st">Representatividade — Plantas ({label_donut})</span>', unsafe_allow_html=True)
+            dados_planta = saving_por_unidade(ano_dash, "planta", metrica_donut)
             if dados_planta:
                 st.plotly_chart(build_donut(dados_planta), use_container_width=True, config={"displayModeBar":False})
             else:
-                st.caption("Sem saving validado em plantas neste ano ainda.")
+                st.caption(f"Sem {label_donut.lower()} em plantas neste ano ainda.")
             st.markdown('</div>', unsafe_allow_html=True)
         with d2:
             st.markdown('<div class="sc">', unsafe_allow_html=True)
-            st.markdown('<span class="st">Representatividade — Áreas Funcionais</span>', unsafe_allow_html=True)
-            dados_area = saving_por_unidade(ano_dash, "area")
+            st.markdown(f'<span class="st">Representatividade — Áreas Funcionais ({label_donut})</span>', unsafe_allow_html=True)
+            dados_area = saving_por_unidade(ano_dash, "area", metrica_donut)
             if dados_area:
                 st.plotly_chart(build_donut(dados_area), use_container_width=True, config={"displayModeBar":False})
             else:
-                st.caption("Sem saving validado em áreas neste ano ainda.")
+                st.caption(f"Sem {label_donut.lower()} em áreas neste ano ainda.")
             st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sc">', unsafe_allow_html=True)
