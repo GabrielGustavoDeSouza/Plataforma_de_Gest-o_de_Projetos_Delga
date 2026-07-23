@@ -9,6 +9,7 @@ from database import (listar_unidades, kpis_unidade, alertas_validacao,
                       get_curva_custos, is_extra_dre, get_ultima_obs_custos, get_curva_saving,
                       normalizar_url, fmt_brl as _fmt_brl, fmt_card,
                       get_carry_over, atividade_atual, atividade_atual_atrasada,
+                      listar_atividades,
                       TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS, MESES_PT)
 from pages.novo_projeto import _render_a3, _render_estrutura, _render_gantt
 
