@@ -300,10 +300,14 @@ def render(user, **colors):
             "checklist, validação, ganho único, real lançado mês a mês, metas e usuários.")
 
         st.markdown("##### ⬇️ Baixar backup")
-        linhas_proj, linhas_metas, linhas_usuarios = exportar_backup_completo()
+        (linhas_proj, linhas_metas, linhas_usuarios,
+         linhas_a3, linhas_atividades, linhas_midias, linhas_evidencias) = exportar_backup_completo()
         n_meses_real = len([c for c in (linhas_proj[0].keys() if linhas_proj else []) if c.startswith("Real ")])
+        n_novo = sum(1 for l in linhas_proj if l.get("Origem") == "novo")
         st.caption(f"Agora mesmo: {len(linhas_proj)} projeto(s) (com até {n_meses_real} mês(es) de "
-                  f"real cada), {len(linhas_metas)} meta(s), {len(linhas_usuarios)} usuário(s) cadastrado(s).")
+                  f"real cada, {n_novo} no formato Novo Projeto), {len(linhas_metas)} meta(s), "
+                  f"{len(linhas_usuarios)} usuário(s) cadastrado(s). A3/Estrutura/evidências de "
+                  f"todos os projetos Novo Projeto viajam junto no arquivo.")
 
         def _gerar_backup_xlsx():
             buf = io.BytesIO()
@@ -311,6 +315,10 @@ def render(user, **colors):
                 pd.DataFrame(linhas_proj).to_excel(writer, sheet_name="Projetos", index=False)
                 pd.DataFrame(linhas_metas).to_excel(writer, sheet_name="Metas", index=False)
                 pd.DataFrame(linhas_usuarios).to_excel(writer, sheet_name="Usuarios", index=False)
+                pd.DataFrame(linhas_a3).to_excel(writer, sheet_name="A3", index=False)
+                pd.DataFrame(linhas_atividades).to_excel(writer, sheet_name="Atividades", index=False)
+                pd.DataFrame(linhas_midias).to_excel(writer, sheet_name="A3_Midias", index=False)
+                pd.DataFrame(linhas_evidencias).to_excel(writer, sheet_name="Evidencias", index=False)
             buf.seek(0)
             return buf
 
@@ -319,7 +327,9 @@ def render(user, **colors):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True, type="primary")
         st.caption("A aba 'Usuarios' guarda a senha num formato técnico (hash) — não dá pra ler a "
-                  "senha ali, só serve pra restaurar o login sem precisar redefinir depois. Não edite essa coluna.")
+                  "senha ali, só serve pra restaurar o login sem precisar redefinir depois. Não edite essa coluna. "
+                  "As abas 'A3_Midias' e 'Evidencias' guardam os arquivos anexados em base64 — são as "
+                  "que deixam o arquivo maior, mas garantem que nada se perde num restore.")
 
         st.markdown("---")
         st.markdown("##### ⬆️ Restaurar backup")
@@ -337,14 +347,23 @@ def render(user, **colors):
                 df_p = xls_b.get("Projetos")
                 formato = None
                 linhas_proj_r, linhas_metas_r, linhas_usuarios_r = [], [], []
+                linhas_a3_r, linhas_ativ_r, linhas_mid_r, linhas_evid_r = [], [], [], []
 
                 if df_p is not None and "Valor Previsto" in df_p.columns and "Nome do Projeto" in df_p.columns:
                     formato = "nativo"
                     df_m = xls_b.get("Metas")
                     df_u = xls_b.get("Usuarios")
+                    df_a3 = xls_b.get("A3")
+                    df_at = xls_b.get("Atividades")
+                    df_mi = xls_b.get("A3_Midias")
+                    df_ev = xls_b.get("Evidencias")
                     linhas_proj_r = df_p.fillna("").to_dict("records")
                     linhas_metas_r = df_m.fillna("").to_dict("records") if df_m is not None else []
                     linhas_usuarios_r = df_u.fillna("").to_dict("records") if df_u is not None else []
+                    linhas_a3_r = df_a3.fillna("").to_dict("records") if df_a3 is not None else []
+                    linhas_ativ_r = df_at.fillna("").to_dict("records") if df_at is not None else []
+                    linhas_mid_r = df_mi.fillna("").to_dict("records") if df_mi is not None else []
+                    linhas_evid_r = df_ev.fillna("").to_dict("records") if df_ev is not None else []
                 else:
                     arq_backup.seek(0)
                     xls_raw = pd.read_excel(arq_backup, sheet_name=None, header=None)
@@ -360,21 +379,25 @@ def render(user, **colors):
                 else:
                     if formato == "consolidada":
                         st.info("📋 Reconheci o formato de **Base Consolidada** — convertido automaticamente "
-                               "pro formato interno antes de restaurar. Usuários não vêm desse tipo de "
-                               "arquivo, então continuam intactos.")
+                               "pro formato interno antes de restaurar. Usuários, A3 e Estrutura não vêm "
+                               "desse tipo de arquivo (ele só cobre o formato Projetos Aplicados), então "
+                               "usuários existentes continuam intactos.")
                     n_meses_r = len([c for c in linhas_proj_r[0].keys() if str(c).startswith("Real ")]) if linhas_proj_r else 0
                     st.markdown(f"**Prévia:** {len(linhas_proj_r)} projeto(s) (com colunas de real pra "
                               f"até {n_meses_r} mês(es)), {len(linhas_metas_r)} meta(s), "
-                              f"{len(linhas_usuarios_r)} usuário(s) nesse arquivo — isso vai **substituir** "
-                              f"os projetos e metas atuais.")
+                              f"{len(linhas_usuarios_r)} usuário(s), {len(linhas_a3_r)} A3 preenchido(s), "
+                              f"{len(linhas_ativ_r)} atividade(s) de Estrutura nesse arquivo — isso vai "
+                              f"**substituir** os projetos e metas atuais.")
                     confirmar_rest = st.checkbox(
                         "Confirmo que quero apagar os dados atuais e restaurar este backup.")
                     if st.button("♻️ Restaurar Backup", disabled=not confirmar_rest,
                                 type="primary", use_container_width=True):
-                        n_p, n_l, n_m, n_u, erros_r = restaurar_backup_completo(
-                            linhas_proj_r, linhas_metas_r, linhas_usuarios_r, user["id"])
+                        n_p, n_l, n_m, n_u, erros_r, n_a3, n_at, n_mi, n_ev = restaurar_backup_completo(
+                            linhas_proj_r, linhas_metas_r, linhas_usuarios_r, user["id"],
+                            linhas_a3_r, linhas_ativ_r, linhas_mid_r, linhas_evid_r)
                         st.success(f"✅ Restaurado: {n_p} projeto(s), {n_l} lançamento(s) de real, "
-                                  f"{n_m} meta(s) e {n_u} usuário(s) novo(s) recriado(s).")
+                                  f"{n_m} meta(s), {n_u} usuário(s) novo(s), {n_a3} A3, "
+                                  f"{n_at} atividade(s) e {n_mi + n_ev} anexo(s).")
                         if erros_r:
                             st.error(f"{len(erros_r)} projeto(s) falharam: " +
                                     "; ".join(f"{e['nome']} ({e['erro']})" for e in erros_r))
