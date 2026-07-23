@@ -1,7 +1,7 @@
 import streamlit as st
 import base64
 import pandas as pd
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import plotly.graph_objects as go
 from database import (listar_unidades, criar_projeto, add_link,
                       TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS,
@@ -23,6 +23,7 @@ def pode_editar(user, unidade_nome):
 
 def _parse_date(v):
     if not v: return None
+    if isinstance(v, datetime): return v.date()
     if isinstance(v, date): return v
     try: return datetime.strptime(str(v)[:10], "%Y-%m-%d").date()
     except Exception: return None
@@ -33,6 +34,77 @@ def _arquivo_para_b64(uploaded_file, limite_mb=8):
     if len(dados) > limite_mb * 1024 * 1024:
         return None, f"Arquivo maior que {limite_mb}MB — deixa o backup muito pesado, escolhe um menor."
     return base64.b64encode(dados).decode("utf-8"), None
+
+def _importar_gestao_projetos_excel(arquivo):
+    """Lê o Excel padrão 'Gestão de Projetos' (abas 'Escopo A3' e
+    'Estrutura', modelo que a Delga já usa) e devolve um dict pronto pra
+    pré-popular a criação do projeto: cabeçalho, os 6 blocos do A3 e a
+    lista de atividades. Se alguma aba não existir ou algum campo não
+    bater, simplesmente vem vazio — nunca derruba o resto do import."""
+    import openpyxl
+    wb = openpyxl.load_workbook(arquivo, data_only=True)
+    resultado = {"cabecalho": {}, "a3": {}, "atividades": []}
+
+    if "Escopo A3" in wb.sheetnames:
+        ws = wb["Escopo A3"]
+        def val(coord):
+            try:
+                v = ws[coord].value
+                return str(v).strip() if v is not None else ""
+            except Exception:
+                return ""
+        resultado["cabecalho"] = {
+            "nome": val("D2"),
+            "numero_projeto": val("P5"),
+            "integrantes": val("G5"),
+            "lider_projeto": val("D7"),
+            "revisao": val("P2").replace("Rev.:", "").replace("Rev:", "").strip(),
+        }
+        resultado["a3"] = {
+            "objetivo_geral": val("C15"),
+            "proposta_desenvolvimento": val("J15"),
+            "situacao_atual": val("C23"),
+            "metas_entregas": val("C38"),
+            "premissas_restricoes": val("C46"),
+            "acompanhamento_indicadores": val("J46"),
+        }
+
+    if "Estrutura" in wb.sheetnames:
+        ws = wb["Estrutura"]
+        header_row, col_map = None, {}
+        for r in range(1, 6):
+            for c in range(1, 12):
+                v = ws.cell(r, c).value
+                if v and "atividade" in str(v).strip().lower():
+                    header_row = r; break
+            if header_row: break
+        if header_row:
+            for c in range(1, 12):
+                v = ws.cell(header_row, c).value
+                if not v: continue
+                vn = str(v).strip().lower().replace("\n", " ")
+                if "atividade" in vn: col_map["atividade"] = c
+                elif "responsav" in vn: col_map["responsavel"] = c
+                elif vn.strip() == "ação" or "acao" in vn: col_map["acao"] = c
+                elif "inicio previsto" in vn or "início previsto" in vn: col_map["inicio"] = c
+                elif "termino previsto" in vn or "término previsto" in vn: col_map["termino"] = c
+                elif "progresso real" in vn: col_map["progresso_real"] = c
+            if "atividade" in col_map:
+                for r in range(header_row+1, header_row+300):
+                    nome = ws.cell(r, col_map["atividade"]).value
+                    if not nome or not str(nome).strip(): continue
+                    def g(chave):
+                        c = col_map.get(chave)
+                        return ws.cell(r, c).value if c else None
+                    resultado["atividades"].append({
+                        "nome": str(nome).strip(),
+                        "responsavel": str(g("responsavel") or ""),
+                        "acao": str(g("acao") or ""),
+                        "inicio": g("inicio"),
+                        "termino": g("termino"),
+                        "progresso_real": g("progresso_real") or 0,
+                    })
+    return resultado
 
 def _estrutura_df_vazia(n=10):
     return pd.DataFrame({
@@ -69,45 +141,94 @@ def _resumo_progresso_plan(linhas):
 def build_gantt(atividades, colors):
     """atividades: lista de dicts com nome/inicio_previsto/termino_previsto/
     progresso_real (aceita tanto registros do banco quanto linhas da grade
-    em memória, desde que usem essas chaves)."""
+    em memória, desde que usem essas chaves). Visual estilo MS Project:
+    granularidade por dia, fins de semana sombreados, linhas zebradas,
+    separador de mês e linha de "hoje"."""
     NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
     AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#D93B3B")
-    SILVER=colors.get("SILVER","#8A9BB0")
-    fig = go.Figure()
-    labels = []
+    SILVER=colors.get("SILVER","#8A9BB0"); BLUE=colors.get("BLUE","#1428FF")
+
+    linhas = []
     for a in atividades:
         ini = _parse_date(a.get("inicio_previsto")); fim = _parse_date(a.get("termino_previsto"))
         if not ini or not fim or fim < ini: continue
-        nome = a.get("nome") or "(sem nome)"
-        labels.append(nome)
-        prog = max(0.0, min(1.0, (a.get("progresso_real") or 0)/100))
+        linhas.append({"nome": a.get("nome") or "(sem nome)", "ini": ini, "fim": fim,
+                       "prog": max(0.0, min(1.0, (a.get("progresso_real") or 0)/100))})
+    if not linhas:
+        return None
+
+    n = len(linhas)
+    tarefas = [f"#{i+1}  {l['nome']}" for i, l in enumerate(linhas)]
+    data_min = min(l["ini"] for l in linhas)
+    data_max = max(l["fim"] for l in linhas)
+    hoje = date.today()
+    janela_ini = min(data_min, hoje) - timedelta(days=2)
+    janela_fim = max(data_max, hoje) + timedelta(days=2)
+    total_dias_janela = (janela_fim - janela_ini).days
+
+    fig = go.Figure()
+
+    # zebra por linha (de trás pra frente, senão cobre as barras)
+    for i in range(n):
+        if i % 2 == 1:
+            fig.add_hrect(y0=i-0.5, y1=i+0.5, fillcolor="#F7F8FB", line_width=0, layer="below")
+
+    # fins de semana sombreados
+    cursor = janela_ini
+    while cursor <= janela_fim:
+        if cursor.weekday() >= 5:  # sábado=5, domingo=6
+            fig.add_vrect(x0=datetime.combine(cursor, datetime.min.time()),
+                          x1=datetime.combine(cursor+timedelta(days=1), datetime.min.time()),
+                          fillcolor="#EEF0F5", line_width=0, layer="below")
+        cursor += timedelta(days=1)
+
+    # separador de mês
+    cursor = date(janela_ini.year, janela_ini.month, 1)
+    while cursor <= janela_fim:
+        if cursor >= janela_ini:
+            fig.add_vline(x=datetime.combine(cursor, datetime.min.time()),
+                         line_width=1, line_color="#D5DAE3")
+        if cursor.month == 12: cursor = date(cursor.year+1, 1, 1)
+        else: cursor = date(cursor.year, cursor.month+1, 1)
+
+    # barras: trilho planejado + preenchimento real
+    for i, l in enumerate(linhas):
+        nome, ini, fim, prog = l["nome"], l["ini"], l["fim"], l["prog"]
         total_dias = (fim-ini).days + 1
-        atrasada_flag = prog < 1 and fim < date.today()
+        atrasada = prog < 1 and fim < hoje
         fig.add_trace(go.Bar(
-            x=[total_dias], y=[nome], base=[ini], orientation="h",
-            marker=dict(color="#E8ECF4", line=dict(color=SILVER, width=1)),
-            showlegend=False, hoverinfo="skip", width=0.55))
+            x=[total_dias], y=[tarefas[i]], base=[ini], orientation="h",
+            marker=dict(color="white", line=dict(color=SILVER, width=1.2)),
+            showlegend=False, hoverinfo="skip", width=0.5))
         dias_preenchidos = round(total_dias*prog)
         if dias_preenchidos > 0:
-            cor = RED if atrasada_flag else (GREEN if prog>=1 else AMBER)
+            cor = RED if atrasada else (GREEN if prog>=1 else BLUE)
             fig.add_trace(go.Bar(
-                x=[dias_preenchidos], y=[nome], base=[ini], orientation="h",
-                marker=dict(color=cor),
-                text=f"{prog*100:.0f}%", textposition="inside", textfont=dict(color="white", size=11),
-                showlegend=False,
-                hovertemplate=f"<b>{nome}</b><br>Previsto: {ini:%d/%m}–{fim:%d/%m}<br>Real: {prog*100:.0f}%<extra></extra>",
-                width=0.55))
-    if not labels:
-        return None
-    fig.add_vline(x=datetime.combine(date.today(), datetime.min.time()),
-                   line_width=1.5, line_dash="dot", line_color=RED)
+                x=[dias_preenchidos], y=[tarefas[i]], base=[ini], orientation="h",
+                marker=dict(color=cor), showlegend=False,
+                hovertemplate=f"<b>{nome}</b><br>{ini:%d/%m/%y} – {fim:%d/%m/%y} ({total_dias}d)<br>Real: {prog*100:.0f}%<extra></extra>",
+                width=0.5))
+        # rótulo de datas + % à direita da barra
+        fig.add_annotation(x=datetime.combine(fim+timedelta(days=1), datetime.min.time()), y=tarefas[i],
+                          text=f"{ini:%d/%m}–{fim:%d/%m} · {prog*100:.0f}%",
+                          showarrow=False, xanchor="left", font=dict(size=10, color=NAVY))
+
+    # linha de hoje
+    fig.add_vline(x=datetime.combine(hoje, datetime.min.time()), line_width=2, line_color=RED,
+                 annotation_text="Hoje", annotation_position="top", annotation_font=dict(size=10, color=RED))
+
+    dtick = "D1" if total_dias_janela <= 45 else ("D7" if total_dias_janela <= 180 else "M1")
+    fig.update_xaxes(type="date", range=[datetime.combine(janela_ini, datetime.min.time()),
+                                          datetime.combine(janela_fim, datetime.min.time())],
+                     dtick=dtick, tickformat="%d/%m", tickangle=0, gridcolor="#EEF0F5",
+                     side="top", showgrid=True)
+    fig.update_yaxes(autorange="reversed", title=None, showgrid=False)
     fig.update_layout(
-        barmode="overlay", height=max(220, 48*len(labels)),
-        margin=dict(l=10,r=10,t=10,b=10),
-        xaxis=dict(type="date", title=None, gridcolor="#F0F2F7"),
-        yaxis=dict(autorange="reversed", title=None),
+        barmode="overlay", height=max(240, 42*n + 60),
+        margin=dict(l=10, r=90, t=40, b=10),
         paper_bgcolor="white", plot_bgcolor="white",
-        font=dict(family="Inter", size=12, color=NAVY))
+        font=dict(family="Inter", size=12, color=NAVY),
+        showlegend=False)
     return fig
 
 def _linhas_para_gantt(linhas_df):
@@ -321,6 +442,57 @@ def _render_novo_projeto(user, colors):
     c1,c2 = st.columns([2,4])
     with c1: link1_tit = st.text_input("Nome 1", placeholder="ex: Planilha de Apoio", key="npn_l1t")
     with c2: link1_url = st.text_input("URL 1", placeholder="https://...", key="npn_l1u")
+
+    st.markdown("---")
+
+    # ── 1.5 Arquivo de Projeto Pronto? ──────────────────────────────────
+    st.markdown("### 📁 Já tem um Arquivo de Projeto pronto?")
+    st.caption("Se você já preencheu o Excel padrão (Escopo A3 + Estrutura), suba ele aqui que eu preencho "
+              "A3 e Estrutura sozinho — você só revisa antes de criar. Se não, é só seguir preenchendo "
+              "manualmente aqui embaixo.")
+    tem_arquivo = st.radio("Tem o arquivo pronto?", ["Não, vou preencher manualmente","Sim, vou anexar"],
+                           key="npn_tem_arquivo", horizontal=True, label_visibility="collapsed")
+    if tem_arquivo.startswith("Sim"):
+        arq_pronto = st.file_uploader("Excel do projeto (Escopo A3 + Estrutura)", type=["xlsx"], key="npn_arq_pronto")
+        if arq_pronto is not None and not st.session_state.get("npn_arq_processado"):
+            try:
+                dados_imp = _importar_gestao_projetos_excel(arq_pronto)
+            except Exception as e:
+                dados_imp = None
+                st.error(f"Não consegui ler esse arquivo: {e}")
+            if dados_imp:
+                cab = dados_imp["cabecalho"]
+                if cab.get("nome"): st.session_state["npn_nome"] = cab["nome"]
+                if cab.get("numero_projeto"): st.session_state["npn_numero"] = cab["numero_projeto"]
+                if cab.get("lider_projeto"): st.session_state["npn_lider"] = cab["lider_projeto"]
+                if cab.get("integrantes"): st.session_state["npn_integrantes"] = cab["integrantes"]
+                if cab.get("revisao"): st.session_state["npn_revisao"] = cab["revisao"]
+                for campo, texto in dados_imp["a3"].items():
+                    if texto: st.session_state[f"npn_a3_{campo}"] = texto
+                if dados_imp["atividades"]:
+                    df_imp = pd.DataFrame([{
+                        "Atividade": a["nome"], "Responsável": a.get("responsavel") or "",
+                        "Ação": a.get("acao") or "",
+                        "Início Previsto": _parse_date(a.get("inicio")),
+                        "Término Previsto": _parse_date(a.get("termino")),
+                        "% Progresso Real": a.get("progresso_real") or 0,
+                    } for a in dados_imp["atividades"]])
+                    df_imp = pd.concat([df_imp, _estrutura_df_vazia(3)], ignore_index=True)
+                    st.session_state["npn_estrutura_df"] = df_imp
+                    st.session_state.pop("npn_estrutura_editor", None)  # força a grade a reler a seed nova
+                st.session_state["npn_arq_processado"] = True
+                n_ativ_imp = len(dados_imp["atividades"])
+                n_a3_imp = sum(1 for v in dados_imp["a3"].values() if v)
+                st.success(f"✅ Importei {n_ativ_imp} atividade(s) e {n_a3_imp} bloco(s) do A3! "
+                          f"Role a página pra revisar tudo antes de clicar em Criar Projeto.")
+                st.rerun()
+        if st.session_state.get("npn_arq_processado"):
+            st.info("📄 Arquivo já importado — os campos abaixo foram pré-preenchidos. Pode revisar e "
+                   "ajustar qualquer coisa normalmente antes de criar o projeto.")
+            if st.button("↩️ Importar outro arquivo / desfazer", key="npn_desfazer_import"):
+                st.session_state.pop("npn_arq_processado", None)
+                st.session_state.pop("npn_arq_pronto", None)
+                st.rerun()
 
     st.markdown("---")
 
