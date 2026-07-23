@@ -17,9 +17,12 @@ def get_engine():
     return True
 
 def _ensure_db():
-    """Garante que o banco existe e está inicializado."""
-    if not os.path.exists(DB_PATH):
-        init_db()
+    """Garante que o banco existe e está com o schema atualizado. init_db()
+    é idempotente (CREATE TABLE IF NOT EXISTS + ALTER TABLE em try/except),
+    então rodar sempre aqui — não só quando o arquivo não existe — garante
+    que uma coluna/tabela nova apareça mesmo se a primeira página acessada
+    depois de um deploy não for o Dashboard Global."""
+    init_db()
 
 def get_conn():
     _ensure_db()
@@ -66,15 +69,49 @@ def init_db():
         onde_parado TEXT, data_lib TEXT,
         campeao INTEGER DEFAULT 0, campeao_em TEXT,
         ganho_unico INTEGER DEFAULT 0,
+        origem TEXT DEFAULT 'aplicado',
+        numero_projeto TEXT, lider_projeto TEXT, integrantes TEXT, revisao TEXT,
+        replanejamentos INTEGER DEFAULT 0,
         criado_em TEXT DEFAULT (datetime('now')),
         criado_por INTEGER REFERENCES usuarios(id),
         ultima_atualizacao TEXT DEFAULT (datetime('now')),
         atualizado_por INTEGER REFERENCES usuarios(id))""")
     # Migração leve — adiciona a coluna se o banco já existia sem ela
-    try:
-        c.execute("ALTER TABLE projetos ADD COLUMN ganho_unico INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
+    for _sql in [
+        "ALTER TABLE projetos ADD COLUMN ganho_unico INTEGER DEFAULT 0",
+        "ALTER TABLE projetos ADD COLUMN origem TEXT DEFAULT 'aplicado'",
+        "ALTER TABLE projetos ADD COLUMN numero_projeto TEXT",
+        "ALTER TABLE projetos ADD COLUMN lider_projeto TEXT",
+        "ALTER TABLE projetos ADD COLUMN integrantes TEXT",
+        "ALTER TABLE projetos ADD COLUMN revisao TEXT",
+        "ALTER TABLE projetos ADD COLUMN replanejamentos INTEGER DEFAULT 0",
+    ]:
+        try: c.execute(_sql)
+        except sqlite3.OperationalError: pass
+    c.execute("""CREATE TABLE IF NOT EXISTS projeto_a3 (
+        projeto_id INTEGER PRIMARY KEY REFERENCES projetos(id) ON DELETE CASCADE,
+        objetivo_geral TEXT, proposta_desenvolvimento TEXT, situacao_atual TEXT,
+        metas_entregas TEXT, premissas_restricoes TEXT, acompanhamento_indicadores TEXT,
+        atualizado_em TEXT DEFAULT (datetime('now')))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS projeto_a3_midias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        projeto_id INTEGER NOT NULL REFERENCES projetos(id) ON DELETE CASCADE,
+        campo TEXT NOT NULL,
+        nome_arquivo TEXT, mime_type TEXT, dados_b64 TEXT,
+        criado_em TEXT DEFAULT (datetime('now')))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS projeto_evidencias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        projeto_id INTEGER NOT NULL REFERENCES projetos(id) ON DELETE CASCADE,
+        nome_arquivo TEXT, mime_type TEXT, dados_b64 TEXT,
+        criado_em TEXT DEFAULT (datetime('now')))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS projeto_atividades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        projeto_id INTEGER NOT NULL REFERENCES projetos(id) ON DELETE CASCADE,
+        ordem INTEGER NOT NULL DEFAULT 0,
+        nome TEXT NOT NULL, responsavel TEXT,
+        inicio_previsto TEXT, termino_previsto TEXT,
+        progresso_real REAL DEFAULT 0, acao TEXT,
+        criado_em TEXT DEFAULT (datetime('now')))""")
     c.execute("""CREATE TABLE IF NOT EXISTS projeto_links (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         projeto_id INTEGER NOT NULL REFERENCES projetos(id) ON DELETE CASCADE,
@@ -179,9 +216,10 @@ def importar_projetos_lote(linhas, criado_por_id):
 
 def exportar_backup_completo():
     """Gera o backup completo (projetos com real mês a mês embutido + metas +
-    usuários) em listas de dicts prontas pra virar planilha de 3 abas. Formato
-    que a própria plataforma sabe reler 100%, pensado pra 'zerei hoje, recupero
-    amanhã' sem perder checklist, validação, ganho único nem usuários."""
+    usuários + A3 + Estrutura + evidências) em listas de dicts prontas pra
+    virar planilha de várias abas. Formato que a própria plataforma sabe
+    reler 100%, pensado pra 'zerei hoje, recupero amanhã' sem perder nada —
+    incluindo os projetos no formato novo (A3/Estrutura/Gantt)."""
     projetos = listar_projetos(incluir_campeao=True)
 
     # Descobre todos os (ano,mes) com lançamento em qualquer projeto, pra criar
@@ -217,6 +255,12 @@ def exportar_backup_completo():
             "Responsável Atividade": p.get("onde_parado") or "",
             "Previsão Conclusão": p.get("data_conclusao_ativ") or "",
             "Observações": p.get("obs") or "",
+            "Origem": p.get("origem") or "aplicado",
+            "Nº Projeto": p.get("numero_projeto") or "",
+            "Líder do Projeto": p.get("lider_projeto") or "",
+            "Integrantes": p.get("integrantes") or "",
+            "Revisão": p.get("revisao") or "",
+            "Replanejamentos": p.get("replanejamentos") or 0,
         }
         lancs = lancs_por_projeto[p["id"]]
         for (ano_m, mes_m) in meses_ordenados:
@@ -238,14 +282,69 @@ def exportar_backup_completo():
             "SenhaHashInterno": u.get("senha_hash") or "",
         })
 
-    return linhas_proj, linhas_metas, linhas_usuarios
+    # A3 — só exporta projetos que realmente têm algo preenchido
+    linhas_a3 = []
+    for p in projetos:
+        a3 = get_a3(p["id"])
+        if any(a3.get(k) for k,_ in CAMPOS_A3):
+            row = {"Unidade": p["unidade_nome"], "Nome do Projeto": p["nome"]}
+            for k, label in CAMPOS_A3:
+                row[label] = a3.get(k) or ""
+            linhas_a3.append(row)
 
-def restaurar_backup_completo(linhas_proj, linhas_metas, linhas_usuarios, user_id):
+    # Estrutura (atividades) — uma linha por atividade
+    linhas_atividades = []
+    for p in projetos:
+        for a in listar_atividades(p["id"]):
+            linhas_atividades.append({
+                "Unidade": p["unidade_nome"], "Nome do Projeto": p["nome"],
+                "Ordem": a["ordem"], "Atividade": a["nome"],
+                "Responsável": a.get("responsavel") or "",
+                "Início Previsto": str(a.get("inicio_previsto") or ""),
+                "Término Previsto": str(a.get("termino_previsto") or ""),
+                "% Progresso Real": a.get("progresso_real") or 0,
+                "Ação": a.get("acao") or "",
+            })
+
+    # Imagens do A3 e evidências — dados em base64 (o backup carrega o
+    # arquivo inteiro, senão um restore perderia as evidências anexadas)
+    linhas_midias = []
+    for p in projetos:
+        for m in get_a3_midias(p["id"]):
+            linhas_midias.append({
+                "Unidade": p["unidade_nome"], "Nome do Projeto": p["nome"],
+                "Campo": m["campo"], "Nome Arquivo": m.get("nome_arquivo") or "",
+                "Mime Type": m.get("mime_type") or "", "Dados Base64": m.get("dados_b64") or "",
+            })
+
+    linhas_evidencias = []
+    for p in projetos:
+        for e in get_evidencias(p["id"]):
+            linhas_evidencias.append({
+                "Unidade": p["unidade_nome"], "Nome do Projeto": p["nome"],
+                "Nome Arquivo": e.get("nome_arquivo") or "", "Mime Type": e.get("mime_type") or "",
+                "Dados Base64": e.get("dados_b64") or "",
+            })
+
+    return (linhas_proj, linhas_metas, linhas_usuarios,
+            linhas_a3, linhas_atividades, linhas_midias, linhas_evidencias)
+
+def restaurar_backup_completo(linhas_proj, linhas_metas, linhas_usuarios, user_id,
+                               linhas_a3=None, linhas_atividades=None,
+                               linhas_midias=None, linhas_evidencias=None):
     """Apaga TODOS os projetos e metas atuais e recarrega a partir de um backup
     exportado por exportar_backup_completo — incluindo real mês a mês,
-    checklist, validação e ganho único. Usuários já existentes (mesmo e-mail)
-    não são sobrescritos; só os que faltam são recriados, com a senha que
-    tinham antes preservada. Operação destrutiva — a UI precisa confirmar."""
+    checklist, validação, ganho único, A3, Estrutura e evidências. Usuários
+    já existentes (mesmo e-mail) não são sobrescritos; só os que faltam são
+    recriados, com a senha que tinham antes preservada. Os 4 últimos
+    parâmetros são opcionais — um backup antigo (sem essas abas) continua
+    restaurando normalmente, só sem A3/Estrutura. Operação destrutiva — a
+    UI precisa confirmar."""
+    linhas_a3 = linhas_a3 or []
+    linhas_atividades = linhas_atividades or []
+    linhas_midias = linhas_midias or []
+    linhas_evidencias = linhas_evidencias or []
+
     conn = get_conn()
     conn.execute("DELETE FROM projetos")
     conn.execute("DELETE FROM metas")
@@ -272,11 +371,17 @@ def restaurar_backup_completo(linhas_proj, linhas_metas, linhas_usuarios, user_i
                 "check_memoria": int(_truthy(l.get("Check Memória"))),
                 "check_formalizado": int(_truthy(l.get("Check Formalizado"))),
                 "ganho_unico": int(_truthy(l.get("Ganho Único"))),
+                "origem": l.get("Origem") or "aplicado",
+                "numero_projeto": l.get("Nº Projeto",""),
+                "lider_projeto": l.get("Líder do Projeto",""),
+                "integrantes": l.get("Integrantes",""),
+                "revisao": l.get("Revisão",""),
             }, user_id)
             atualizar_projeto(pid, {
                 "validador_ok": l.get("Validação") or "Pendente",
                 "previsto_custos": l.get("Valor Calculado Custos",0),
                 "saving_validado": l.get("Saving Validado",0),
+                "replanejamentos": int(l.get("Replanejamentos") or 0),
             }, user_id)
             mapa_id[(l["Unidade"], l["Nome do Projeto"])] = pid
         except Exception as e:
@@ -318,7 +423,56 @@ def restaurar_backup_completo(linhas_proj, linhas_metas, linhas_usuarios, user_i
             pass
     conn.commit(); conn.close()
 
-    return len(mapa_id), n_lanc, len(linhas_metas), n_usu, erros
+    n_a3 = 0
+    for l in linhas_a3:
+        pid = mapa_id.get((l.get("Unidade"), l.get("Nome do Projeto")))
+        if not pid: continue
+        try:
+            campos = {k: l.get(label,"") for k, label in CAMPOS_A3}
+            if any(campos.values()):
+                salvar_a3(pid, campos); n_a3 += 1
+        except Exception:
+            pass
+
+    n_ativ = 0
+    for l in linhas_atividades:
+        pid = mapa_id.get((l.get("Unidade"), l.get("Nome do Projeto")))
+        if not pid: continue
+        try:
+            add_atividade(pid, {
+                "ordem": int(l.get("Ordem") or 0), "nome": l.get("Atividade",""),
+                "responsavel": l.get("Responsável",""),
+                "inicio_previsto": l.get("Início Previsto") or None,
+                "termino_previsto": l.get("Término Previsto") or None,
+                "progresso_real": float(l.get("% Progresso Real") or 0),
+                "acao": l.get("Ação",""),
+            })
+            n_ativ += 1
+        except Exception:
+            pass
+
+    n_mid = 0
+    for l in linhas_midias:
+        pid = mapa_id.get((l.get("Unidade"), l.get("Nome do Projeto")))
+        if not pid or not l.get("Dados Base64"): continue
+        try:
+            add_a3_midia(pid, l.get("Campo",""), l.get("Nome Arquivo",""),
+                         l.get("Mime Type",""), l.get("Dados Base64",""))
+            n_mid += 1
+        except Exception:
+            pass
+
+    n_evid = 0
+    for l in linhas_evidencias:
+        pid = mapa_id.get((l.get("Unidade"), l.get("Nome do Projeto")))
+        if not pid or not l.get("Dados Base64"): continue
+        try:
+            add_evidencia(pid, l.get("Nome Arquivo",""), l.get("Mime Type",""), l.get("Dados Base64",""))
+            n_evid += 1
+        except Exception:
+            pass
+
+    return len(mapa_id), n_lanc, len(linhas_metas), n_usu, erros, n_a3, n_ativ, n_mid, n_evid
 
 def normalizar_url(url):
     """Garante que o link tenha esquema (https://), senão o navegador
@@ -463,15 +617,19 @@ def criar_projeto(unidade_nome, dados, user_id):
     cursor = conn.execute("""INSERT INTO projetos (unidade_id,nome,tipo,va_ggf,responsavel,
         descricao,obs,inicio,termino,mes_primeiro_retorno,previsto_unidade,status,
         atividade_atual,data_conclusao_ativ,onde_parado,data_lib,
-        check_a3,check_memoria,check_formalizado,ganho_unico,criado_por,atualizado_por)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        check_a3,check_memoria,check_formalizado,ganho_unico,
+        origem,numero_projeto,lider_projeto,integrantes,revisao,
+        criado_por,atualizado_por)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (u["id"],dados["nome"],dados["tipo"],dados.get("va_ggf"),dados.get("responsavel"),
          dados.get("descricao"),dados.get("obs"),dados.get("inicio"),dados.get("termino"),
          dados.get("mes_primeiro_retorno"),dados.get("previsto_unidade",0),
          dados.get("status","📝 Não iniciado"),dados.get("atividade_atual"),
          dados.get("data_conclusao_ativ"),dados.get("onde_parado"),dados.get("data_lib"),
          int(dados.get("check_a3",0)),int(dados.get("check_memoria",0)),
-         int(dados.get("check_formalizado",0)),int(dados.get("ganho_unico",0)),user_id,user_id))
+         int(dados.get("check_formalizado",0)),int(dados.get("ganho_unico",0)),
+         dados.get("origem","aplicado"),dados.get("numero_projeto"),dados.get("lider_projeto"),
+         dados.get("integrantes"),dados.get("revisao"),user_id,user_id))
     pid = cursor.lastrowid; conn.commit(); conn.close(); return pid
 
 def atualizar_projeto(proj_id, campos, user_id):
@@ -517,6 +675,156 @@ def verificar_campeoes():
                              (hoje.isoformat(),p["id"]))
         except: pass
     conn.commit(); conn.close()
+
+CAMPOS_A3 = [
+    ("objetivo_geral", "Objetivo Geral / Considerações Iniciais"),
+    ("proposta_desenvolvimento", "Proposta / Desenvolvimento"),
+    ("situacao_atual", "Situação Atual"),
+    ("metas_entregas", "Metas / Entregas"),
+    ("premissas_restricoes", "Premissas / Restrições"),
+    ("acompanhamento_indicadores", "Acompanhamento / Indicadores"),
+]
+
+def get_a3(projeto_id):
+    get_engine(); conn = get_conn()
+    row = conn.execute("SELECT * FROM projeto_a3 WHERE projeto_id=?", (projeto_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else {k: "" for k,_ in CAMPOS_A3}
+
+def salvar_a3(projeto_id, campos):
+    conn = get_conn()
+    existe = conn.execute("SELECT 1 FROM projeto_a3 WHERE projeto_id=?", (projeto_id,)).fetchone()
+    valores = {k: campos.get(k,"") for k,_ in CAMPOS_A3}
+    if existe:
+        sets = ", ".join(f"{k}=?" for k in valores)
+        conn.execute(f"UPDATE projeto_a3 SET {sets}, atualizado_em=datetime('now') WHERE projeto_id=?",
+                     list(valores.values())+[projeto_id])
+    else:
+        cols = ",".join(valores.keys()); qs = ",".join("?" for _ in valores)
+        conn.execute(f"INSERT INTO projeto_a3 (projeto_id,{cols}) VALUES (?,{qs})",
+                     [projeto_id]+list(valores.values()))
+    conn.commit(); conn.close()
+
+def add_a3_midia(projeto_id, campo, nome_arquivo, mime_type, dados_b64):
+    conn = get_conn()
+    conn.execute("""INSERT INTO projeto_a3_midias (projeto_id,campo,nome_arquivo,mime_type,dados_b64)
+        VALUES (?,?,?,?,?)""", (projeto_id, campo, nome_arquivo, mime_type, dados_b64))
+    conn.commit(); conn.close()
+
+def get_a3_midias(projeto_id, campo=None):
+    get_engine(); conn = get_conn()
+    if campo:
+        rows = conn.execute("SELECT * FROM projeto_a3_midias WHERE projeto_id=? AND campo=? ORDER BY id",
+                             (projeto_id, campo)).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM projeto_a3_midias WHERE projeto_id=? ORDER BY id",
+                             (projeto_id,)).fetchall()
+    conn.close(); return [dict(r) for r in rows]
+
+def del_a3_midia(midia_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM projeto_a3_midias WHERE id=?", (midia_id,))
+    conn.commit(); conn.close()
+
+def add_evidencia(projeto_id, nome_arquivo, mime_type, dados_b64):
+    conn = get_conn()
+    conn.execute("""INSERT INTO projeto_evidencias (projeto_id,nome_arquivo,mime_type,dados_b64)
+        VALUES (?,?,?,?)""", (projeto_id, nome_arquivo, mime_type, dados_b64))
+    conn.commit(); conn.close()
+
+def get_evidencias(projeto_id):
+    get_engine(); conn = get_conn()
+    rows = conn.execute("SELECT * FROM projeto_evidencias WHERE projeto_id=? ORDER BY id",
+                         (projeto_id,)).fetchall()
+    conn.close(); return [dict(r) for r in rows]
+
+def del_evidencia(ev_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM projeto_evidencias WHERE id=?", (ev_id,))
+    conn.commit(); conn.close()
+
+def listar_atividades(projeto_id):
+    get_engine(); conn = get_conn()
+    rows = conn.execute("SELECT * FROM projeto_atividades WHERE projeto_id=? ORDER BY ordem,id",
+                         (projeto_id,)).fetchall()
+    conn.close(); return [dict(r) for r in rows]
+
+def add_atividade(projeto_id, dados):
+    conn = get_conn()
+    ordem = dados.get("ordem")
+    if ordem is None:
+        row = conn.execute("SELECT COALESCE(MAX(ordem),0)+1 AS o FROM projeto_atividades WHERE projeto_id=?",
+                            (projeto_id,)).fetchone()
+        ordem = row["o"]
+    cur = conn.execute("""INSERT INTO projeto_atividades
+        (projeto_id,ordem,nome,responsavel,inicio_previsto,termino_previsto,progresso_real,acao)
+        VALUES (?,?,?,?,?,?,?,?)""",
+        (projeto_id, ordem, dados.get("nome",""), dados.get("responsavel",""),
+         dados.get("inicio_previsto"), dados.get("termino_previsto"),
+         float(dados.get("progresso_real",0) or 0), dados.get("acao","")))
+    conn.commit(); aid = cur.lastrowid; conn.close(); return aid
+
+def atualizar_atividade(atividade_id, dados):
+    """Atualiza uma atividade. Se o Término Previsto mudar em relação ao
+    que estava salvo, soma +1 no contador discreto de replanejamento do
+    projeto — nunca bloqueia a edição, só registra que aconteceu."""
+    conn = get_conn()
+    atual = conn.execute("SELECT * FROM projeto_atividades WHERE id=?", (atividade_id,)).fetchone()
+    if not atual:
+        conn.close(); return
+    termino_antigo = str(atual["termino_previsto"] or "")
+    campos = {k: dados[k] for k in
+              ("nome","responsavel","inicio_previsto","termino_previsto","progresso_real","acao","ordem")
+              if k in dados}
+    if campos:
+        sets = ", ".join(f"{k}=?" for k in campos)
+        conn.execute(f"UPDATE projeto_atividades SET {sets} WHERE id=?", list(campos.values())+[atividade_id])
+    termino_novo = str(dados.get("termino_previsto", termino_antigo) or "")
+    if termino_antigo and termino_novo and termino_novo != termino_antigo:
+        conn.execute("UPDATE projetos SET replanejamentos=COALESCE(replanejamentos,0)+1 WHERE id=?",
+                     (atual["projeto_id"],))
+    conn.commit(); conn.close()
+
+def del_atividade(atividade_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM projeto_atividades WHERE id=?", (atividade_id,))
+    conn.commit(); conn.close()
+
+def progresso_plan_atividade(inicio_previsto, termino_previsto):
+    """% planejado até hoje (0-100), comparando hoje com o intervalo
+    previsto — mesma fórmula de interpolação linear do A3 original."""
+    try:
+        ini = datetime.strptime(str(inicio_previsto)[:10], "%Y-%m-%d").date()
+        fim = datetime.strptime(str(termino_previsto)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+    total = (fim - ini).days + 1
+    if total <= 0: return None
+    hoje = date.today()
+    if hoje < ini: return 0.0
+    if hoje > fim: return 100.0
+    return round(((hoje - ini).days + 1) / total * 100, 1)
+
+def atividade_atual(projeto_id):
+    """Primeira atividade da Estrutura com % Progresso Real < 100, em
+    ordem. None se não houver atividades ou todas já estiverem em 100%."""
+    for a in listar_atividades(projeto_id):
+        if (a.get("progresso_real") or 0) < 100:
+            return a
+    return None
+
+def atividade_atual_atrasada(atividade):
+    """A atividade ATUAL está atrasada quando o próprio término previsto
+    dela já passou e ela ainda não chegou a 100% — sinal independente de
+    o projeto como um todo estar ou não no prazo."""
+    if not atividade: return False
+    if (atividade.get("progresso_real") or 0) >= 100: return False
+    t = str(atividade.get("termino_previsto") or "")
+    if not t: return False
+    try:
+        return datetime.strptime(t[:10], "%Y-%m-%d").date() < date.today()
+    except Exception:
+        return False
 
 def get_links(proj_id):
     get_engine(); conn = get_conn()
