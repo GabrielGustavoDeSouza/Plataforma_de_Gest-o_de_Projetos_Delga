@@ -8,8 +8,9 @@ from database import (listar_unidades, kpis_unidade, alertas_validacao,
                       del_link, get_todas_metas, get_lancamentos, get_curva_unidade,
                       get_curva_custos, is_extra_dre, get_ultima_obs_custos, get_curva_saving,
                       normalizar_url, fmt_brl as _fmt_brl, fmt_card,
-                      get_carry_over,
+                      get_carry_over, atividade_atual, atividade_atual_atrasada,
                       TIPOS_PROJETO, VA_GGF_OPTS, STATUS_OPTS, MESES_PT)
+from pages.novo_projeto import _render_a3, _render_estrutura, _render_gantt
 
 def clean_html(html):
     return "".join(l.strip() for l in html.strip().split("\n"))
@@ -33,6 +34,103 @@ def linha_atrasada(p):
     if not t or t in ("None","nan",""): return False
     try: return date(int(t[:4]),int(t[5:7]),28) < date.today()
     except: return False
+
+def render_editor_novo(p, user, is_cc, GREEN, AMBER, RED):
+    """Editor completo pro formato Novo Projeto — abas Fundamentos, A3,
+    Estrutura e Gantt, em vez do formulário único do formato antigo."""
+    sub_f, sub_a3, sub_e, sub_g = st.tabs(["🧱 Fundamentos", "📋 A3", "🗓️ Estrutura", "📊 Gantt"])
+    colors = {"GREEN": GREEN, "AMBER": AMBER, "RED": RED}
+
+    with sub_f:
+        with st.form(f"fe2_{p['id']}"):
+            c1,c2,c3=st.columns(3)
+            with c1: tipo_e=st.selectbox("Tipo",TIPOS_PROJETO,index=TIPOS_PROJETO.index(p["tipo"]) if p["tipo"] in TIPOS_PROJETO else 0,key=f"ti2_{p['id']}")
+            with c2: va_e=st.selectbox("VA/GGF",VA_GGF_OPTS,index=VA_GGF_OPTS.index(p["va_ggf"]) if p.get("va_ggf") in VA_GGF_OPTS else 0,key=f"va2_{p['id']}")
+            with c3: resp_e=st.text_input("Responsável",value=p.get("responsavel",""),key=f"re2_{p['id']}")
+            nome_e=st.text_input("Nome",value=p["nome"],key=f"nm2_{p['id']}")
+            desc_e=st.text_area("Descrição",value=p.get("descricao","") or "",height=60,key=f"ds2_{p['id']}")
+            st.markdown("**Cabeçalho do A3**")
+            c1,c2,c3=st.columns(3)
+            with c1: num_e=st.text_input("Nº do Projeto",value=p.get("numero_projeto","") or "",key=f"np_{p['id']}")
+            with c2: lid_e=st.text_input("Líder do Projeto",value=p.get("lider_projeto","") or "",key=f"ld_{p['id']}")
+            with c3: rev_e=st.text_input("Revisão",value=p.get("revisao","") or "",key=f"rv_{p['id']}")
+            integ_e=st.text_input("Integrantes",value=p.get("integrantes","") or "",key=f"ig_{p['id']}")
+            st.markdown("**Datas e Valores**")
+            ganho_unico_e = st.checkbox("🎯 Ganho Único", value=bool(p.get("ganho_unico")), key=f"gu2_{p['id']}")
+            c1,c2,c3=st.columns(3)
+            with c1: inicio_e=st.date_input("Data de Início",value=_parse_date(p.get("inicio")),key=f"ini2_{p['id']}",format="DD/MM/YYYY")
+            with c2: termino_e=st.date_input("Data de Fim",value=_parse_date(p.get("termino")),key=f"trm2_{p['id']}",format="DD/MM/YYYY")
+            with c3: mpr_e=st.date_input("Ganho a partir de",value=_parse_date(p.get("mes_primeiro_retorno")),key=f"mpr2_{p['id']}",format="DD/MM/YYYY")
+            c1,c2=st.columns(2)
+            with c1: prev_e=st.number_input("Previsto Unidade (R$)",value=float(p["previsto_unidade"]),step=1000.0,format="%.2f",key=f"pv2_{p['id']}")
+            with c2: status_e=st.selectbox("Status",STATUS_OPTS,index=STATUS_OPTS.index(p["status"]) if p["status"] in STATUS_OPTS else 0,key=f"st2_{p['id']}")
+            st.caption("Atividade Atual, Responsável e Previsão de Conclusão agora são automáticos, "
+                      "puxados da aba Estrutura — não precisa preencher aqui.")
+            st.markdown("**Checklist**")
+            c1,c2,c3=st.columns(3)
+            with c1: ck_a3_e=st.checkbox("A3 desenvolvido",value=bool(p.get("check_a3")),key=f"ca2_{p['id']}")
+            with c2: ck_mem_e=st.checkbox("Memória de Cálculo",value=bool(p.get("check_memoria")),key=f"cm2_{p['id']}")
+            with c3: ck_for_e=st.checkbox("Formalizado com Custos",value=bool(p.get("check_formalizado")),key=f"cf2_{p['id']}")
+            obs_e=st.text_area("Observações",value=p.get("obs","") or "",height=50,key=f"ob2_{p['id']}")
+            st.markdown("---")
+            st.markdown("**🔵 Cost Control**")
+            if is_cc:
+                c1,c2=st.columns(2)
+                with c1:
+                    _val_atual = p.get("validador_ok") or "Pendente"
+                    _val_opts = ["Pendente","OK","NOK"]
+                    val_ok=st.selectbox("Validador",_val_opts,index=_val_opts.index(_val_atual) if _val_atual in _val_opts else 0,key=f"vk2_{p['id']}")
+                    saving=st.number_input("Saving Validado (R$)",value=float(p.get("saving_validado") or 0),step=1000.0,format="%.2f",key=f"sv2_{p['id']}")
+                with c2:
+                    prev_c=st.number_input("Valor Calculado Custos (R$)",value=float(p.get("previsto_custos") or 0),step=1000.0,format="%.2f",key=f"pc2_{p['id']}")
+            else:
+                val_ok=p.get("validador_ok","Pendente"); saving=p.get("saving_validado") or 0; prev_c=p.get("previsto_custos") or 0
+                vok_color=GREEN if val_ok=="OK" else (RED if val_ok=="NOK" else AMBER)
+                hc(f'<div style="background:#F4F6FB;border-radius:8px;padding:10px 14px;font-size:11px;display:flex;gap:24px;"><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Validador</span><br><b style="color:{vok_color};">{val_ok}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Calc. Custos</span><br><b>{fmt_brl(prev_c)}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Saving</span><br><b style="color:#20C997;">{fmt_brl(saving)}</b></div></div>')
+            col_s,col_d=st.columns([4,1])
+            with col_s: salvar_e=st.form_submit_button("💾 Salvar",use_container_width=True)
+            with col_d: excluir_e=st.form_submit_button("🗑️",use_container_width=True)
+
+        if salvar_e:
+            atualizar_projeto(p["id"],{"nome":nome_e,"tipo":tipo_e,"va_ggf":va_e,"responsavel":resp_e,
+                "descricao":desc_e,"obs":obs_e,"status":status_e,"inicio":str(inicio_e),"termino":str(termino_e),
+                "mes_primeiro_retorno":str(mpr_e),"previsto_unidade":prev_e,"previsto_custos":prev_c,
+                "numero_projeto":num_e,"lider_projeto":lid_e,"integrantes":integ_e,"revisao":rev_e,
+                "check_a3":int(ck_a3_e),"check_memoria":int(ck_mem_e),"check_formalizado":int(ck_for_e),
+                "validador_ok":val_ok,"saving_validado":saving,"ganho_unico":int(ganho_unico_e)},user["id"])
+            st.success("✅ Atualizado!"); st.session_state[f"edit_open_{p['id']}"]=False; st.rerun()
+        if excluir_e:
+            deletar_projeto(p["id"]); st.success("🗑️ Excluído."); st.rerun()
+
+        st.markdown("**🔗 Links**")
+        lks=get_links(p["id"])
+        for lk in lks:
+            c1,c2=st.columns([8,1])
+            with c1: st.markdown(f"🔗 [{lk['titulo']}]({normalizar_url(lk['url'])})")
+            with c2:
+                if st.button("✕",key=f"dlk2_{lk['id']}"): del_link(lk["id"]); st.rerun()
+        with st.form(f"flk2_{p['id']}",clear_on_submit=True):
+            c1,c2=st.columns([2,4])
+            with c1: tit_lk=st.text_input("Nome",key=f"lt2_{p['id']}")
+            with c2: url_lk=st.text_input("URL",key=f"lu2_{p['id']}")
+            if st.form_submit_button("➕ Link"):
+                if tit_lk and url_lk: add_link(p["id"],tit_lk,url_lk); st.success("✅"); st.rerun()
+
+    with sub_a3:
+        _render_a3(p["id"], colors)
+    with sub_e:
+        _render_estrutura(p["id"], colors)
+    with sub_g:
+        _render_gantt(p["id"], colors)
+
+def render_editor_dispatch(p, user, is_cc, GREEN, AMBER, RED):
+    """Roteia pro editor certo: projetos 'novo' abrem o editor completo
+    (Fundamentos/A3/Estrutura/Gantt); projetos 'aplicado' continuam no
+    formulário único de sempre."""
+    if p.get("origem") == "novo":
+        render_editor_novo(p, user, is_cc, GREEN, AMBER, RED)
+    else:
+        render_editor_form(p, user, is_cc, GREEN, AMBER, RED)
 
 def toggle_editor_button(p, discreet=False):
     """Botão de editar (lápis) — alterna o formulário aberto/fechado.
@@ -474,18 +572,43 @@ def render(user, **colors):
                         f'{(val_ano_p/prev_val*100):.0f}% previsto p/ {ano_sel}</div>'
                         if prev_val>0 and curva_p else '')
 
-        # Atividade atual — só pra projetos não concluídos, sempre com fallback
-        if not concluido:
+        # Atividade atual — automática pra projetos "novo" (via Estrutura,
+        # primeira com < 100%), manual pra "aplicado" (como sempre foi).
+        origem_novo = p.get("origem") == "novo"
+        ativ_atrasada = False
+        ativ_txt = resp_ativ_txt = dt_ativ_txt = None
+        if origem_novo:
+            atual_a = atividade_atual(p["id"])
+            ativ_atrasada = atividade_atual_atrasada(atual_a)
+            if atual_a:
+                ativ_txt = atual_a.get("nome") or "Não informado"
+                resp_ativ_txt = atual_a.get("responsavel") or "Não informado"
+                dt_ativ_txt = str(atual_a.get("termino_previsto") or "").strip()[:10] or "Não informado"
+            elif not concluido:
+                ativ_txt, resp_ativ_txt, dt_ativ_txt = "Todas as atividades concluídas", "—", "—"
+        else:
             ativ_txt = p.get('atividade_atual') or 'Não informado'
             resp_ativ_txt = p.get('onde_parado') or 'Não informado'
             dt_ativ_txt = str(p.get('data_conclusao_ativ') or '').strip() or 'Não informado'
+
+        if not concluido and ativ_txt:
+            atraso_badge = (' <span style="color:#C8202E;font-weight:700;">⚠️ atividade atrasada</span>'
+                            if ativ_atrasada else '')
             atividade_html = (f'<div style="margin-top:6px;font-size:10px;color:#555;'
                               f'background:#F9F9F9;padding:5px 10px;border-radius:6px;">'
                               f'📌 <b>Atividade atual:</b> {_html.escape(ativ_txt)} · '
                               f'<b>Resp.:</b> {_html.escape(resp_ativ_txt)} · '
-                              f'<b>Previsão de conclusão:</b> {_html.escape(dt_ativ_txt)}</div>')
+                              f'<b>Previsão de conclusão:</b> {_html.escape(dt_ativ_txt)}{atraso_badge}</div>')
         else:
             atividade_html = ''
+
+        # Contador discreto de replanejamento — só projetos "novo", só aqui
+        # em Minha Unidade, sempre visível mas pequeno (não tira autonomia,
+        # só deixa rastro de quantas vezes um prazo de atividade mudou)
+        replan = p.get("replanejamentos") or 0
+        replan_html = (f' · <span style="color:{SILVER};" '
+                       f'title="Quantas vezes o término previsto de uma atividade deste projeto mudou">'
+                       f'🔄 {replan}x replanejado</span>') if origem_novo and replan else ''
 
         hc(f"""
 <div style="border-left:4px solid {border_c};background:white;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:2px;box-shadow:0 1px 4px rgba(28,43,74,.06);">
@@ -493,7 +616,7 @@ def render(user, **colors):
 <div style="flex:1;min-width:180px;">
 <div style="font-size:10px;color:{SILVER};">{p['tipo']}{dre_b}{gu_b} · {p.get('va_ggf','—')}</div>
 <div style="font-size:13px;font-weight:700;{txt_c}margin-top:2px;">#{p['id']} — {p['nome']}{'<span style="font-size:10px;color:#C8202E;margin-left:8px;">⚠️ ATRASADO</span>' if atrasado else ''}</div>
-<div style="font-size:10px;color:{SILVER};margin-top:3px;">Resp: <b>{p.get('responsavel','—')}</b> · Término: <b style="color:{'#C8202E' if atrasado else '#333'};">{term_str or '—'}</b> · Custos: <b style="color:{vok_c};">{p.get('validador_ok','Pendente')}</b></div>
+<div style="font-size:10px;color:{SILVER};margin-top:3px;">Resp: <b>{p.get('responsavel','—')}</b> · Término: <b style="color:{'#C8202E' if atrasado else '#333'};">{term_str or '—'}</b> · Custos: <b style="color:{vok_c};">{p.get('validador_ok','Pendente')}</b>{replan_html}</div>
 {f'<div style="margin-top:4px;">{link_html}</div>' if link_html else ''}
 {ult_obs_html}
 </div>
@@ -513,7 +636,7 @@ def render(user, **colors):
             with col_edit:
                 toggle_editor_button(p, discreet=False)
             if st.session_state.get(f"edit_open_{p['id']}",False):
-                render_editor_form(p, user, is_cc, GREEN, AMBER, RED)
+                render_editor_dispatch(p, user, is_cc, GREEN, AMBER, RED)
 
         st.markdown("<hr style='margin:4px 0;border-color:#EEF0F3;'>",unsafe_allow_html=True)
 
@@ -531,5 +654,5 @@ def render(user, **colors):
                     with c_pencil:
                         toggle_editor_button(p, discreet=True)
                     if st.session_state.get(f"edit_open_{p['id']}",False):
-                        render_editor_form(p, user, is_cc, GREEN, AMBER, RED)
+                        render_editor_dispatch(p, user, is_cc, GREEN, AMBER, RED)
                 st.markdown("<hr style='margin:2px 0;border-color:#F5F5F5;'>",unsafe_allow_html=True)
