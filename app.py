@@ -1157,7 +1157,16 @@ def build_light_table_html(df_table):
 def main():
     # SIDEBAR
     with st.sidebar:
-        st.image("logo_delga.png", use_container_width=True)
+        try:
+            st.image("logo_delga.png", use_container_width=True)
+        except Exception:
+            st.markdown(
+                '<div style="text-align:center; padding:12px 0;">'
+                '<span style="font-size:22px; font-weight:900; color:#1400FF; letter-spacing:-1px; font-family:Inter,sans-serif;">GRUPO</span><br>'
+                '<span style="font-size:28px; font-weight:900; color:#1F2937; letter-spacing:-1px; font-family:Inter,sans-serif;">DELGA</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
         st.markdown("""
         <div style="text-align:center; padding:8px 0 16px 0;">
             <p style="color:#64748B; font-size:11px; margin:0; text-transform:uppercase; letter-spacing:1.5px; font-weight:600;">Controle de Matéria-Prima</p>
