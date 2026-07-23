@@ -1,5 +1,6 @@
 import streamlit as st
 import base64
+import pandas as pd
 from datetime import date, datetime
 import plotly.graph_objects as go
 from database import (listar_unidades, criar_projeto, add_link,
@@ -7,11 +8,12 @@ from database import (listar_unidades, criar_projeto, add_link,
                       EXTRA_DRE_TIPOS, CAMPOS_A3, get_a3, salvar_a3,
                       add_a3_midia, get_a3_midias, del_a3_midia,
                       add_evidencia, get_evidencias, del_evidencia,
-                      listar_atividades, add_atividade, atualizar_atividade,
-                      del_atividade, progresso_plan_atividade, atividade_atual,
+                      listar_atividades, add_atividade, del_atividade,
+                      progresso_plan_atividade, atividade_atual,
                       get_projeto, atualizar_projeto)
 
 DATA_FIM_PROJETOS_APLICADOS = date(2027, 1, 1)
+COLS_ESTRUTURA = ["Atividade","Responsável","Ação","Início Previsto","Término Previsto","% Progresso Real"]
 
 def pode_editar(user, unidade_nome):
     if user["perfil"] == "admin": return True
@@ -21,6 +23,7 @@ def pode_editar(user, unidade_nome):
 
 def _parse_date(v):
     if not v: return None
+    if isinstance(v, date): return v
     try: return datetime.strptime(str(v)[:10], "%Y-%m-%d").date()
     except Exception: return None
 
@@ -31,10 +34,42 @@ def _arquivo_para_b64(uploaded_file, limite_mb=8):
         return None, f"Arquivo maior que {limite_mb}MB — deixa o backup muito pesado, escolhe um menor."
     return base64.b64encode(dados).decode("utf-8"), None
 
+def _estrutura_df_vazia(n=10):
+    return pd.DataFrame({
+        "Atividade": [""]*n, "Responsável": [""]*n, "Ação": [""]*n,
+        "Início Previsto": [None]*n, "Término Previsto": [None]*n,
+        "% Progresso Real": [0]*n,
+    })
+
+def _estrutura_col_config():
+    return {
+        "Início Previsto": st.column_config.DateColumn("Início Previsto", format="DD/MM/YYYY"),
+        "Término Previsto": st.column_config.DateColumn("Término Previsto", format="DD/MM/YYYY"),
+        "% Progresso Real": st.column_config.NumberColumn("% Progresso Real", min_value=0, max_value=100, step=5),
+    }
+
+def _linhas_validas(df):
+    """Filtra só as linhas com Atividade preenchida (ignora as vazias da grade)."""
+    return [row for _, row in df.iterrows() if str(row.get("Atividade") or "").strip()]
+
+def _resumo_progresso_plan(linhas):
+    if not linhas: return
+    partes = []
+    for row in linhas:
+        p = progresso_plan_atividade(row.get("Início Previsto"), row.get("Término Previsto"))
+        if p is not None:
+            partes.append(f"{str(row['Atividade']).strip()}: {p:.0f}%")
+    if partes:
+        st.caption("📐 **% Progresso Plan** (calculado sozinho, comparando hoje com as datas previstas): " +
+                  " · ".join(partes))
+
 # =====================================================================
 # GANTT — calculado em cima da Estrutura, não é preenchido à parte
 # =====================================================================
 def build_gantt(atividades, colors):
+    """atividades: lista de dicts com nome/inicio_previsto/termino_previsto/
+    progresso_real (aceita tanto registros do banco quanto linhas da grade
+    em memória, desde que usem essas chaves)."""
     NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
     AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#D93B3B")
     SILVER=colors.get("SILVER","#8A9BB0")
@@ -48,12 +83,10 @@ def build_gantt(atividades, colors):
         prog = max(0.0, min(1.0, (a.get("progresso_real") or 0)/100))
         total_dias = (fim-ini).days + 1
         atrasada_flag = prog < 1 and fim < date.today()
-        # trilho de fundo — tamanho do planejado
         fig.add_trace(go.Bar(
             x=[total_dias], y=[nome], base=[ini], orientation="h",
             marker=dict(color="#E8ECF4", line=dict(color=SILVER, width=1)),
             showlegend=False, hoverinfo="skip", width=0.55))
-        # preenchimento conforme % real
         dias_preenchidos = round(total_dias*prog)
         if dias_preenchidos > 0:
             cor = RED if atrasada_flag else (GREEN if prog>=1 else AMBER)
@@ -77,10 +110,70 @@ def build_gantt(atividades, colors):
         font=dict(family="Inter", size=12, color=NAVY))
     return fig
 
-def _render_gantt(pid, colors):
+def _linhas_para_gantt(linhas_df):
+    return [{"nome": r["Atividade"], "inicio_previsto": r.get("Início Previsto"),
+             "termino_previsto": r.get("Término Previsto"), "progresso_real": r.get("% Progresso Real") or 0}
+            for r in linhas_df]
+
+# =====================================================================
+# ESTRUTURA — grade fluida estilo Excel (usada tanto na criação, em
+# memória, quanto na edição de um projeto já existente, ligada ao banco)
+# =====================================================================
+def _render_estrutura_db(pid, user, colors):
+    """Versão ligada ao banco — usada ao editar um projeto Novo Projeto já
+    criado (via Minha Unidade)."""
+    ativs_db = listar_atividades(pid)
+    terminos_antes = sorted(str(a.get("termino_previsto") or "") for a in ativs_db)
+
+    if ativs_db:
+        df = pd.DataFrame([{
+            "Atividade": a.get("nome") or "", "Responsável": a.get("responsavel") or "",
+            "Ação": a.get("acao") or "", "Início Previsto": _parse_date(a.get("inicio_previsto")),
+            "Término Previsto": _parse_date(a.get("termino_previsto")),
+            "% Progresso Real": a.get("progresso_real") or 0,
+        } for a in ativs_db])
+        df = pd.concat([df, _estrutura_df_vazia(3)], ignore_index=True)
+    else:
+        df = _estrutura_df_vazia(10)
+
+    st.caption("Grade estilo planilha — edite direto nas células, arraste pra baixo pra preencher mais rápido. "
+              "Use o **+** no fim da tabela pra mais linhas.")
+    edited = st.data_editor(df[COLS_ESTRUTURA], key=f"est_editor_{pid}", num_rows="dynamic",
+                             use_container_width=True, hide_index=True, column_config=_estrutura_col_config())
+
+    linhas = _linhas_validas(edited)
+    _resumo_progresso_plan(linhas)
+
+    if st.button("💾 Salvar Estrutura", key=f"salvar_est_{pid}", type="primary", use_container_width=True):
+        terminos_depois = sorted(str(_parse_date(row.get("Término Previsto")) or "") for row in linhas)
+        for a in ativs_db:
+            del_atividade(a["id"])
+        for row in linhas:
+            add_atividade(pid, {
+                "nome": str(row["Atividade"]).strip(),
+                "responsavel": str(row.get("Responsável") or ""),
+                "acao": str(row.get("Ação") or ""),
+                "inicio_previsto": str(_parse_date(row.get("Início Previsto")) or "") or None,
+                "termino_previsto": str(_parse_date(row.get("Término Previsto")) or "") or None,
+                "progresso_real": float(row.get("% Progresso Real") or 0),
+            })
+        if ativs_db and terminos_antes != terminos_depois:
+            p_atual = get_projeto(pid)
+            atualizar_projeto(pid, {"replanejamentos": (p_atual.get("replanejamentos") or 0) + 1}, user["id"])
+        st.success("✅ Estrutura salva!"); st.rerun()
+
+    atual = atividade_atual(pid)
+    if atual:
+        st.info(f"📍 **Atual Atribuição (automática):** {atual['nome']} · "
+               f"Responsável: {atual.get('responsavel') or '—'} · "
+               f"Término Previsto: {str(atual.get('termino_previsto') or '—')[:10]}")
+    elif ativs_db:
+        st.success("✅ Todas as atividades concluídas!")
+
+def _render_gantt_db(pid, colors):
     ativs = [a for a in listar_atividades(pid) if a.get("inicio_previsto") and a.get("termino_previsto")]
     if not ativs:
-        st.info("Cadastre atividades na aba **Estrutura** com Início e Término previstos pra ver o Gantt aqui.")
+        st.info("Preencha a **Estrutura** com Início e Término previstos pra ver o Gantt aqui.")
         return
     st.caption("A barra tem o tamanho do planejado e é pintada conforme o % Progresso Real. "
               "A linha pontilhada vermelha é hoje. Vermelho na barra = atividade atrasada.")
@@ -89,71 +182,10 @@ def _render_gantt(pid, colors):
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 # =====================================================================
-# ESTRUTURA — atividades (o Gantt é derivado disso)
+# A3 — 6 blocos + imagens inline + evidências gerais (versão ligada ao
+# banco, usada ao editar um projeto Novo Projeto já criado)
 # =====================================================================
-def _render_estrutura(pid, colors):
-    SILVER=colors.get("SILVER","#8A9BB0")
-    st.caption("Uma linha por atividade. **% Progresso Plan** é calculado sozinho (compara hoje com as "
-              "datas previstas) — só pra referência. **% Progresso Real** você atualiza conforme o time "
-              "avança. Ao bater 100%, a atividade some do posto de 'Atual Atribuição' e a próxima assume "
-              "automaticamente no cartão do projeto.")
-
-    ativs = listar_atividades(pid)
-    for a in ativs:
-        plan = progresso_plan_atividade(a.get("inicio_previsto"), a.get("termino_previsto"))
-        real_v = a.get("progresso_real") or 0
-        atrasada = plan is not None and real_v < 100 and plan >= 100
-        titulo = f"{'⚠️ ' if atrasada else ''}#{a['ordem']} — {a['nome'] or '(sem nome)'} · Real {real_v:.0f}%"
-        if plan is not None: titulo += f" · Plan {plan:.0f}%"
-        with st.expander(titulo, expanded=False):
-            with st.form(f"ativ_{a['id']}"):
-                c1,c2 = st.columns(2)
-                with c1: nome_e = st.text_input("Atividade", value=a.get("nome") or "")
-                with c2: resp_e = st.text_input("Responsável", value=a.get("responsavel") or "")
-                c1,c2,c3 = st.columns(3)
-                with c1: ini_e = st.date_input("Início Previsto", value=_parse_date(a.get("inicio_previsto")), format="DD/MM/YYYY")
-                with c2: fim_e = st.date_input("Término Previsto", value=_parse_date(a.get("termino_previsto")), format="DD/MM/YYYY")
-                with c3: prog_e = st.number_input("% Progresso Real", min_value=0, max_value=100, value=int(real_v), step=5)
-                acao_e = st.text_input("Ação / Observação", value=a.get("acao") or "")
-                cs,cd = st.columns([4,1])
-                with cs: salvar_at = st.form_submit_button("💾 Salvar", use_container_width=True)
-                with cd: excluir_at = st.form_submit_button("🗑️", use_container_width=True)
-            if salvar_at:
-                atualizar_atividade(a["id"], {"nome":nome_e,"responsavel":resp_e,
-                    "inicio_previsto":str(ini_e),"termino_previsto":str(fim_e),
-                    "progresso_real":float(prog_e),"acao":acao_e})
-                st.success("✅ Atualizado!"); st.rerun()
-            if excluir_at:
-                del_atividade(a["id"]); st.success("🗑️ Excluída."); st.rerun()
-
-    st.markdown("**➕ Nova atividade**")
-    with st.form(f"nova_ativ_{pid}", clear_on_submit=True):
-        c1,c2 = st.columns(2)
-        with c1: nome_n = st.text_input("Atividade")
-        with c2: resp_n = st.text_input("Responsável")
-        c1,c2 = st.columns(2)
-        with c1: ini_n = st.date_input("Início Previsto", format="DD/MM/YYYY")
-        with c2: fim_n = st.date_input("Término Previsto", format="DD/MM/YYYY")
-        if st.form_submit_button("➕ Adicionar Atividade", use_container_width=True):
-            if nome_n:
-                add_atividade(pid, {"nome":nome_n,"responsavel":resp_n,
-                    "inicio_previsto":str(ini_n),"termino_previsto":str(fim_n),"progresso_real":0})
-                st.success("✅ Adicionada!"); st.rerun()
-            else:
-                st.error("Preencha o nome da atividade.")
-
-    atual = atividade_atual(pid)
-    if atual:
-        st.info(f"📍 **Atual Atribuição (automática):** {atual['nome']} · "
-               f"Responsável: {atual.get('responsavel') or '—'} · "
-               f"Término Previsto: {str(atual.get('termino_previsto') or '—')[:10]}")
-    elif ativs:
-        st.success("✅ Todas as atividades concluídas!")
-
-# =====================================================================
-# A3 — 6 blocos + imagens inline + evidências gerais
-# =====================================================================
-def _render_a3(pid, colors):
+def _render_a3_db(pid, colors):
     a3 = get_a3(pid)
     st.caption("Preencha cada bloco do A3. Pode anexar imagem em qualquer bloco (fica visível ali dentro — "
               "ex: um fluxo na Proposta/Desenvolvimento). Anexos que não são imagem (PPT, Excel, PDF) vão "
@@ -175,14 +207,19 @@ def _render_a3(pid, colors):
                             st.caption(f"📎 {img.get('nome_arquivo')}")
                         if st.button("🗑️ remover", key=f"delimg_{img['id']}", use_container_width=True):
                             del_a3_midia(img["id"]); st.rerun()
+            # a key muda a cada upload processado — assim o file_uploader "esquece"
+            # o arquivo anterior e não fica reprocessando/duplicando a cada rerun
+            ctr_key = f"upimg_ctr_{campo}_{pid}"
+            ctr = st.session_state.get(ctr_key, 0)
             up = st.file_uploader(f"Adicionar imagem — {label}", type=["png","jpg","jpeg","gif","webp"],
-                                   key=f"upimg_{campo}_{pid}", label_visibility="collapsed")
+                                   key=f"upimg_{campo}_{pid}_{ctr}", label_visibility="collapsed")
             if up is not None:
                 b64, erro = _arquivo_para_b64(up)
                 if erro:
                     st.error(erro)
                 elif b64:
                     add_a3_midia(pid, campo, up.name, up.type or "image/png", b64)
+                    st.session_state[ctr_key] = ctr + 1
                     st.success("✅ Imagem adicionada."); st.rerun()
 
     if st.button("💾 Salvar A3", type="primary", use_container_width=True, key=f"salvar_a3_{pid}"):
@@ -198,7 +235,9 @@ def _render_a3(pid, colors):
         with c2: st.caption(e.get("mime_type") or "")
         with c3:
             if st.button("🗑️", key=f"delev_{e['id']}"): del_evidencia(e["id"]); st.rerun()
-    up_ev = st.file_uploader("Adicionar evidência", key=f"upev_{pid}",
+    ctr_ev_key = f"upev_ctr_{pid}"
+    ctr_ev = st.session_state.get(ctr_ev_key, 0)
+    up_ev = st.file_uploader("Adicionar evidência", key=f"upev_{pid}_{ctr_ev}",
                               type=["pdf","ppt","pptx","xls","xlsx","doc","docx","png","jpg","jpeg"])
     if up_ev is not None:
         b64, erro = _arquivo_para_b64(up_ev)
@@ -206,35 +245,35 @@ def _render_a3(pid, colors):
             st.error(erro)
         elif b64:
             add_evidencia(pid, up_ev.name, up_ev.type or "application/octet-stream", b64)
+            st.session_state[ctr_ev_key] = ctr_ev + 1
             st.success("✅ Evidência anexada."); st.rerun()
 
-# =====================================================================
-# FUNDAMENTOS — cria o projeto (mesma paridade de campos do formato antigo)
-# =====================================================================
-def _render_fundamentos(user, colors):
-    NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
+# Aliases mantidos pra compatibilidade com quem já importa esses nomes
+_render_a3 = _render_a3_db
+_render_estrutura = _render_estrutura_db
+_render_gantt = _render_gantt_db
 
-    pid_ativo = st.session_state.get("np2_pid")
-    if pid_ativo:
-        p = get_projeto(pid_ativo)
-        if not p:
-            st.session_state.pop("np2_pid", None); st.rerun(); return
-        st.markdown(f"""<div style="background:#EAF0FF;border-left:3px solid {NAVY};border-radius:0 6px 6px 0;
-             padding:10px 14px;margin-bottom:14px;font-size:12px;">
-             ✏️ Editando <b>#{p['id']} — {p['nome']}</b> ({p['unidade_nome']}) — preencha A3, Estrutura e
-             Gantt nas abas ao lado. Pra ajustar os campos daqui de novo, use o ✏️ em Minha Unidade.</div>""",
-             unsafe_allow_html=True)
-        if st.button("➕ Começar outro projeto novo", key="np2_novo"):
-            st.session_state.pop("np2_pid", None); st.rerun()
-        return
+# =====================================================================
+# NOVO PROJETO — página única: Fundamentos > A3 > Estrutura > Datas >
+# Gantt > Checklist > Status/Observações > Criar. Nada é salvo até o
+# botão final — A3/Estrutura/imagens ficam em memória (session_state)
+# até lá, porque o projeto ainda não existe.
+# =====================================================================
+def _limpar_estado_novo_projeto():
+    for k in list(st.session_state.keys()):
+        if k.startswith("npn_") or k.startswith("a3n_") or k.startswith("upimgn_") or k.startswith("upevn_"):
+            del st.session_state[k]
+
+def _render_novo_projeto(user, colors):
+    NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
 
     unidades = listar_unidades()
     nomes_u  = [u["nome"] for u in unidades]
 
     if user["perfil"] == "admin":
-        unidade_sel = st.selectbox("Unidade:", nomes_u, key="np2_uni")
+        unidade_sel = st.selectbox("Unidade:", nomes_u, key="npn_uni")
     elif user["perfil"] in ("facilitador","gestor","cost_control"):
-        unidade_sel = st.selectbox("Unidade:", nomes_u, key="np2_uni")
+        unidade_sel = st.selectbox("Unidade:", nomes_u, key="npn_uni")
         if user.get("unidade") and unidade_sel != user.get("unidade"):
             st.info(f"👁️ Você cria projetos apenas em **{user.get('unidade')}**")
     else:
@@ -246,11 +285,12 @@ def _render_fundamentos(user, colors):
         st.warning(f"⛔ Você só pode criar projetos em **{user.get('unidade','')}**.")
         return
 
-    st.markdown("#### Identificação")
+    # ── 1. Fundamentos ──────────────────────────────────────────────────
+    st.markdown("### 🧱 Fundamentos")
     c1,c2,c3 = st.columns(3)
-    with c1: tipo = st.selectbox("Tipo *", TIPOS_PROJETO, key="np2_tipo")
-    with c2: va   = st.selectbox("VA / GGF / Material Auxiliar *", VA_GGF_OPTS, key="np2_va")
-    with c3: resp = st.text_input("Responsável", key="np2_resp")
+    with c1: tipo = st.selectbox("Tipo *", TIPOS_PROJETO, key="npn_tipo")
+    with c2: va   = st.selectbox("VA / GGF / Material Auxiliar *", VA_GGF_OPTS, key="npn_va")
+    with c3: resp = st.text_input("Responsável", key="npn_resp")
 
     is_extra = tipo in EXTRA_DRE_TIPOS
     if is_extra:
@@ -262,54 +302,149 @@ def _render_fundamentos(user, colors):
                     f'padding:8px 14px;font-size:11px;color:#1A5C2E;"><b>✓ Dentro do DRE</b> — {tipo} impacta '
                     f'diretamente o DRE.</div>', unsafe_allow_html=True)
 
-    with st.form("form_novo2", clear_on_submit=False):
-        nome = st.text_input("Nome do Projeto *")
-        desc = st.text_area("Descrição / Objetivo", height=70)
+    nome = st.text_input("Nome do Projeto *", key="npn_nome")
+    desc = st.text_area("Descrição / Objetivo", height=70, key="npn_desc")
 
-        st.markdown("#### Cabeçalho do A3")
-        c1,c2,c3 = st.columns(3)
-        with c1: numero_p = st.text_input("Nº do Projeto")
-        with c2: lider_p = st.text_input("Líder do Projeto")
-        with c3: revisao_p = st.text_input("Revisão", value="Rev. 00")
-        integrantes_p = st.text_input("Integrantes", placeholder="Nomes separados por vírgula")
+    st.markdown("**Cabeçalho do A3**")
+    c1,c2,c3 = st.columns(3)
+    with c1: numero_p = st.text_input("Nº do Projeto", key="npn_numero")
+    with c2: lider_p = st.text_input("Líder do Projeto", key="npn_lider")
+    with c3: revisao_p = st.text_input("Revisão", value="Rev. 00", key="npn_revisao")
+    integrantes_p = st.text_input("Integrantes", placeholder="Nomes separados por vírgula", key="npn_integrantes")
 
-        st.markdown("#### Datas e Valores")
-        ganho_unico = st.checkbox(
-            "🎯 Ganho Único — retorno pontual, só no mês do 1º retorno",
-            help="Concentra o valor inteiro no mês de retorno, sem ratear em 12 meses.")
-        c1,c2,c3 = st.columns(3)
-        with c1: inicio  = st.date_input("Data de Início do Projeto", format="DD/MM/YYYY")
-        with c2: termino = st.date_input("Data de Fim do Projeto", format="DD/MM/YYYY")
-        with c3: mpr     = st.date_input("Ganho a partir de... *", format="DD/MM/YYYY",
-            help="Mês em que o projeto começa a gerar ganho financeiro — base do rateio em 12 meses "
-                 "(ou mês único, se Ganho Único estiver marcado).")
-        previsto = st.number_input("Valor Previsto (R$) *", min_value=0.0, step=1000.0, format="%.2f")
+    ganho_unico = st.checkbox(
+        "🎯 Ganho Único — retorno pontual, só no mês do 1º retorno",
+        help="Concentra o valor inteiro no mês de retorno, sem ratear em 12 meses.", key="npn_gu")
+    previsto = st.number_input("Valor Previsto (R$) *", min_value=0.0, step=1000.0, format="%.2f", key="npn_previsto")
 
-        st.markdown("#### Links e Evidências (SharePoint / OneDrive)")
-        st.caption("Links externos rápidos. Anexos de verdade (PPT, Excel, imagens) ficam dentro do A3, "
-                  "depois que o projeto for criado.")
-        c1,c2 = st.columns([2,4])
-        with c1: link1_tit = st.text_input("Nome 1", placeholder="ex: A3 do Projeto")
-        with c2: link1_url = st.text_input("URL 1", placeholder="https://...")
-        c1,c2 = st.columns([2,4])
-        with c1: link2_tit = st.text_input("Nome 2")
-        with c2: link2_url = st.text_input("URL 2")
+    st.markdown("**Links (SharePoint / OneDrive)**")
+    c1,c2 = st.columns([2,4])
+    with c1: link1_tit = st.text_input("Nome 1", placeholder="ex: Planilha de Apoio", key="npn_l1t")
+    with c2: link1_url = st.text_input("URL 1", placeholder="https://...", key="npn_l1u")
 
-        st.markdown("#### Checklist")
-        st.caption("Quando os 3 estiverem marcados, o projeto vai para validação de Custos.")
-        c1,c2,c3 = st.columns(3)
-        with c1: ck_a3  = st.checkbox("A3 desenvolvido")
-        with c2: ck_mem = st.checkbox("Memória de Cálculo desenvolvida")
-        with c3: ck_for = st.checkbox("Formalizado com Custos")
+    st.markdown("---")
 
-        st.markdown("#### Status e Observações")
-        status = st.selectbox("Status", STATUS_OPTS)
-        obs = st.text_area("Observações", height=70)
+    # ── 2. A3 ────────────────────────────────────────────────────────────
+    st.markdown("### 📋 A3")
+    st.caption("Preencha cada bloco. Pode anexar imagem em qualquer um (fica visível ali dentro — ex: um "
+              "fluxo na Proposta/Desenvolvimento). Isso tudo só é gravado quando você clicar em "
+              "**Criar Projeto**, no fim da página.")
+    for campo, label in CAMPOS_A3:
+        with st.expander(f"**{label}**", expanded=False):
+            st.text_area(label, height=110, key=f"npn_a3_{campo}", label_visibility="collapsed")
+            imgs_key = f"npn_imgs_{campo}"
+            if imgs_key not in st.session_state:
+                st.session_state[imgs_key] = []
+            imgs = st.session_state[imgs_key]
+            if imgs:
+                cols = st.columns(min(len(imgs), 4))
+                for i, img in enumerate(imgs):
+                    with cols[i % 4]:
+                        try:
+                            st.image(base64.b64decode(img["b64"]), caption=img["nome"], use_container_width=True)
+                        except Exception:
+                            st.caption(f"📎 {img['nome']}")
+                        if st.button("🗑️ remover", key=f"delimgn_{campo}_{i}", use_container_width=True):
+                            imgs.pop(i); st.rerun()
+            ctr = st.session_state.get(f"upimgn_ctr_{campo}", 0)
+            up = st.file_uploader(f"Adicionar imagem — {label}", type=["png","jpg","jpeg","gif","webp"],
+                                   key=f"upimgn_{campo}_{ctr}", label_visibility="collapsed")
+            if up is not None:
+                b64, erro = _arquivo_para_b64(up)
+                if erro:
+                    st.error(erro)
+                elif b64:
+                    imgs.append({"nome": up.name, "tipo": up.type or "image/png", "b64": b64})
+                    st.session_state[f"upimgn_ctr_{campo}"] = ctr + 1
+                    st.success("✅ Imagem adicionada."); st.rerun()
 
-        st.markdown("---")
-        salvar = st.form_submit_button("💾 Criar Projeto e Continuar pro A3", use_container_width=True, type="primary")
+    st.markdown("**📎 Evidências / Anexos** *(PPT, Excel, PDF ou qualquer arquivo de apoio)*")
+    if "npn_evid" not in st.session_state:
+        st.session_state["npn_evid"] = []
+    evid = st.session_state["npn_evid"]
+    for i, e in enumerate(evid):
+        c1,c2,c3 = st.columns([5,2,1])
+        with c1: st.markdown(f"📄 **{e['nome']}**")
+        with c2: st.caption(e.get("tipo") or "")
+        with c3:
+            if st.button("🗑️", key=f"delevn_{i}"): evid.pop(i); st.rerun()
+    ctr_ev = st.session_state.get("upevn_ctr", 0)
+    up_ev = st.file_uploader("Adicionar evidência", key=f"upevn_{ctr_ev}",
+                              type=["pdf","ppt","pptx","xls","xlsx","doc","docx","png","jpg","jpeg"])
+    if up_ev is not None:
+        b64, erro = _arquivo_para_b64(up_ev)
+        if erro:
+            st.error(erro)
+        elif b64:
+            evid.append({"nome": up_ev.name, "tipo": up_ev.type or "application/octet-stream", "b64": b64})
+            st.session_state["upevn_ctr"] = ctr_ev + 1
+            st.success("✅ Evidência anexada."); st.rerun()
 
-    if salvar:
+    st.markdown("---")
+
+    # ── 3. Estrutura ─────────────────────────────────────────────────────
+    st.markdown("### 🗓️ Estrutura")
+    st.caption("Grade estilo planilha — Atividade, Responsável, Ação, Início/Término Previsto e "
+              "% Progresso Real. Use o **+** no fim da tabela pra adicionar mais linhas.")
+    if "npn_estrutura_df" not in st.session_state:
+        st.session_state["npn_estrutura_df"] = _estrutura_df_vazia(10)
+    edited_estrutura = st.data_editor(
+        st.session_state["npn_estrutura_df"][COLS_ESTRUTURA], key="npn_estrutura_editor",
+        num_rows="dynamic", use_container_width=True, hide_index=True,
+        column_config=_estrutura_col_config())
+    linhas_ativ = _linhas_validas(edited_estrutura)
+    _resumo_progresso_plan(linhas_ativ)
+
+    st.markdown("---")
+
+    # ── 4. Datas do Projeto (calculadas a partir da Estrutura) ─────────────
+    st.markdown("### 📅 Datas do Projeto")
+    inicios = [_parse_date(r.get("Início Previsto")) for r in linhas_ativ]
+    terminos = [_parse_date(r.get("Término Previsto")) for r in linhas_ativ]
+    inicios = [d for d in inicios if d]; terminos = [d for d in terminos if d]
+    data_inicio_auto = min(inicios) if inicios else None
+    data_fim_auto = max(terminos) if terminos else None
+    c1,c2,c3 = st.columns(3)
+    with c1:
+        st.text_input("Data de Início do Projeto", value=data_inicio_auto.strftime("%d/%m/%Y") if data_inicio_auto else "—",
+                     disabled=True, help="Calculada sozinha: a data mais antiga entre as atividades da Estrutura.")
+    with c2:
+        st.text_input("Data de Fim do Projeto", value=data_fim_auto.strftime("%d/%m/%Y") if data_fim_auto else "—",
+                     disabled=True, help="Calculada sozinha: a data mais futura entre as atividades da Estrutura.")
+    with c3:
+        mpr = st.date_input("Ganho a partir de... *", format="DD/MM/YYYY", key="npn_mpr",
+            help="Mês em que o projeto começa a gerar ganho financeiro — você escolhe, não depende da Estrutura.")
+    if not inicios:
+        st.caption("Preencha a Estrutura acima com Início/Término Previsto pra essas datas calcularem sozinhas.")
+
+    st.markdown("---")
+
+    # ── 5. Gantt (preview, calculado a partir da grade acima) ──────────────
+    st.markdown("### 📊 Gantt")
+    if linhas_ativ:
+        st.caption("Prévia — a barra tem o tamanho do planejado e é pintada conforme o % Progresso Real.")
+        fig = build_gantt(_linhas_para_gantt(linhas_ativ), colors)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.info("Preencha a Estrutura acima pra ver o Gantt aqui.")
+
+    st.markdown("---")
+
+    # ── 6. Checklist (por último) ────────────────────────────────────────
+    st.markdown("### ✅ Checklist")
+    st.caption("Quando os 3 estiverem marcados, o projeto vai para validação de Custos.")
+    c1,c2,c3 = st.columns(3)
+    with c1: ck_a3  = st.checkbox("A3 desenvolvido", key="npn_cka3")
+    with c2: ck_mem = st.checkbox("Memória de Cálculo desenvolvida", key="npn_ckmem")
+    with c3: ck_for = st.checkbox("Formalizado com Custos", key="npn_ckfor")
+
+    st.markdown("### Status e Observações")
+    status = st.selectbox("Status", STATUS_OPTS, key="npn_status")
+    obs = st.text_area("Observações", height=70, key="npn_obs")
+
+    st.markdown("---")
+    if st.button("💾 Criar Projeto", type="primary", use_container_width=True, key="npn_criar"):
         if not nome:
             st.error("Preencha o Nome do Projeto.")
         elif previsto <= 0:
@@ -318,44 +453,39 @@ def _render_fundamentos(user, colors):
             pid = criar_projeto(unidade_sel, {
                 "nome": nome, "tipo": tipo, "va_ggf": va,
                 "responsavel": resp, "descricao": desc, "obs": obs,
-                "inicio": str(inicio), "termino": str(termino),
+                "inicio": str(data_inicio_auto) if data_inicio_auto else "",
+                "termino": str(data_fim_auto) if data_fim_auto else "",
                 "mes_primeiro_retorno": str(mpr),
                 "previsto_unidade": previsto, "status": status,
                 "check_a3": ck_a3, "check_memoria": ck_mem,
                 "check_formalizado": ck_for, "ganho_unico": int(ganho_unico),
                 "origem": "novo", "numero_projeto": numero_p, "lider_projeto": lider_p,
                 "integrantes": integrantes_p, "revisao": revisao_p,
-                # Atual Atribuição passa a ser automática (via Estrutura) — nasce vazia
                 "atividade_atual": "", "onde_parado": "", "data_conclusao_ativ": "",
             }, user["id"])
-            for tit, url in [(link1_tit,link1_url),(link2_tit,link2_url)]:
-                if tit and url:
-                    add_link(pid, tit, url)
-            st.session_state["np2_pid"] = pid
-            st.success(f"✅ Projeto **{nome}** criado! ID #{pid} — agora preencha A3, Estrutura e Gantt.")
+            if link1_tit and link1_url:
+                add_link(pid, link1_tit, link1_url)
+            for campo, _ in CAMPOS_A3:
+                texto = st.session_state.get(f"npn_a3_{campo}", "")
+                if texto:
+                    salvar_a3(pid, {campo: texto})
+                for img in st.session_state.get(f"npn_imgs_{campo}", []):
+                    add_a3_midia(pid, campo, img["nome"], img["tipo"], img["b64"])
+            for e in st.session_state.get("npn_evid", []):
+                add_evidencia(pid, e["nome"], e["tipo"], e["b64"])
+            for row in linhas_ativ:
+                add_atividade(pid, {
+                    "nome": str(row["Atividade"]).strip(),
+                    "responsavel": str(row.get("Responsável") or ""),
+                    "acao": str(row.get("Ação") or ""),
+                    "inicio_previsto": str(_parse_date(row.get("Início Previsto")) or "") or None,
+                    "termino_previsto": str(_parse_date(row.get("Término Previsto")) or "") or None,
+                    "progresso_real": float(row.get("% Progresso Real") or 0),
+                })
+            _limpar_estado_novo_projeto()
+            st.success(f"✅ Projeto **{nome}** criado! ID #{pid}. Pra continuar editando A3/Estrutura/Gantt "
+                      f"depois, use o ✏️ em Minha Unidade.")
             st.rerun()
-
-def _render_novo_projeto(user, colors):
-    sub_fund, sub_a3, sub_est, sub_gantt = st.tabs(["🧱 Fundamentos", "📋 A3", "🗓️ Estrutura", "📊 Gantt"])
-    with sub_fund:
-        _render_fundamentos(user, colors)
-
-    pid_ativo = st.session_state.get("np2_pid")
-    with sub_a3:
-        if not pid_ativo:
-            st.info("Preencha e salve os **Fundamentos** primeiro — o A3 é preenchido depois, dentro do projeto já criado.")
-        else:
-            _render_a3(pid_ativo, colors)
-    with sub_est:
-        if not pid_ativo:
-            st.info("Preencha e salve os **Fundamentos** primeiro.")
-        else:
-            _render_estrutura(pid_ativo, colors)
-    with sub_gantt:
-        if not pid_ativo:
-            st.info("Preencha e salve os **Fundamentos** primeiro.")
-        else:
-            _render_gantt(pid_ativo, colors)
 
 # =====================================================================
 # PROJETOS APLICADOS — formulário original, disponível só até 01/01/2027
@@ -511,11 +641,11 @@ def render(user, **colors):
 
     aplicados_disponivel = date.today() < DATA_FIM_PROJETOS_APLICADOS
     if aplicados_disponivel:
-        tab_aplicados, tab_novo = st.tabs(["📝 Projetos Aplicados", "🆕 Novo Projeto"])
-        with tab_aplicados:
-            _render_projetos_aplicados(user, colors)
+        tab_novo, tab_aplicados = st.tabs(["🆕 Novo Projeto", "📝 Projetos Aplicados"])
         with tab_novo:
             _render_novo_projeto(user, colors)
+        with tab_aplicados:
+            _render_projetos_aplicados(user, colors)
     else:
         st.caption("O formulário 'Projetos Aplicados' (usado pra cadastrar o histórico) não está mais "
                   "disponível a partir de 01/01/2027 — todo projeto novo nasce no formato completo, "
