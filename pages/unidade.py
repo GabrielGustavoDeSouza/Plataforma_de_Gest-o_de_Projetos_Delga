@@ -42,6 +42,12 @@ def render_editor_novo(p, user, is_cc, GREEN, AMBER, RED):
     colors = {"GREEN": GREEN, "AMBER": AMBER, "RED": RED}
 
     with sub_f:
+        ativs_atuais = listar_atividades(p["id"])
+        inicios = [d for d in (_parse_date(a.get("inicio_previsto")) for a in ativs_atuais) if d]
+        terminos = [d for d in (_parse_date(a.get("termino_previsto")) for a in ativs_atuais) if d]
+        data_inicio_auto = min(inicios) if inicios else None
+        data_fim_auto = max(terminos) if terminos else None
+
         with st.form(f"fe2_{p['id']}"):
             c1,c2,c3=st.columns(3)
             with c1: tipo_e=st.selectbox("Tipo",TIPOS_PROJETO,index=TIPOS_PROJETO.index(p["tipo"]) if p["tipo"] in TIPOS_PROJETO else 0,key=f"ti2_{p['id']}")
@@ -55,23 +61,21 @@ def render_editor_novo(p, user, is_cc, GREEN, AMBER, RED):
             with c2: lid_e=st.text_input("Líder do Projeto",value=p.get("lider_projeto","") or "",key=f"ld_{p['id']}")
             with c3: rev_e=st.text_input("Revisão",value=p.get("revisao","") or "",key=f"rv_{p['id']}")
             integ_e=st.text_input("Integrantes",value=p.get("integrantes","") or "",key=f"ig_{p['id']}")
-            st.markdown("**Datas e Valores**")
             ganho_unico_e = st.checkbox("🎯 Ganho Único", value=bool(p.get("ganho_unico")), key=f"gu2_{p['id']}")
+            prev_e=st.number_input("Previsto Unidade (R$)",value=float(p["previsto_unidade"]),step=1000.0,format="%.2f",key=f"pv2_{p['id']}")
+            st.markdown("**Datas do Projeto**")
             c1,c2,c3=st.columns(3)
-            with c1: inicio_e=st.date_input("Data de Início",value=_parse_date(p.get("inicio")),key=f"ini2_{p['id']}",format="DD/MM/YYYY")
-            with c2: termino_e=st.date_input("Data de Fim",value=_parse_date(p.get("termino")),key=f"trm2_{p['id']}",format="DD/MM/YYYY")
+            with c1: st.text_input("Data de Início",value=data_inicio_auto.strftime("%d/%m/%Y") if data_inicio_auto else "—",disabled=True,help="Calculada sozinha a partir da aba Estrutura.")
+            with c2: st.text_input("Data de Fim",value=data_fim_auto.strftime("%d/%m/%Y") if data_fim_auto else "—",disabled=True,help="Calculada sozinha a partir da aba Estrutura.")
             with c3: mpr_e=st.date_input("Ganho a partir de",value=_parse_date(p.get("mes_primeiro_retorno")),key=f"mpr2_{p['id']}",format="DD/MM/YYYY")
-            c1,c2=st.columns(2)
-            with c1: prev_e=st.number_input("Previsto Unidade (R$)",value=float(p["previsto_unidade"]),step=1000.0,format="%.2f",key=f"pv2_{p['id']}")
-            with c2: status_e=st.selectbox("Status",STATUS_OPTS,index=STATUS_OPTS.index(p["status"]) if p["status"] in STATUS_OPTS else 0,key=f"st2_{p['id']}")
-            st.caption("Atividade Atual, Responsável e Previsão de Conclusão agora são automáticos, "
-                      "puxados da aba Estrutura — não precisa preencher aqui.")
+            status_e=st.selectbox("Status",STATUS_OPTS,index=STATUS_OPTS.index(p["status"]) if p["status"] in STATUS_OPTS else 0,key=f"st2_{p['id']}")
+            st.caption("Atividade Atual, Responsável e Previsão de Conclusão são automáticos, puxados da aba Estrutura.")
+            obs_e=st.text_area("Observações",value=p.get("obs","") or "",height=50,key=f"ob2_{p['id']}")
             st.markdown("**Checklist**")
             c1,c2,c3=st.columns(3)
             with c1: ck_a3_e=st.checkbox("A3 desenvolvido",value=bool(p.get("check_a3")),key=f"ca2_{p['id']}")
             with c2: ck_mem_e=st.checkbox("Memória de Cálculo",value=bool(p.get("check_memoria")),key=f"cm2_{p['id']}")
             with c3: ck_for_e=st.checkbox("Formalizado com Custos",value=bool(p.get("check_formalizado")),key=f"cf2_{p['id']}")
-            obs_e=st.text_area("Observações",value=p.get("obs","") or "",height=50,key=f"ob2_{p['id']}")
             st.markdown("---")
             st.markdown("**🔵 Cost Control**")
             if is_cc:
@@ -93,7 +97,9 @@ def render_editor_novo(p, user, is_cc, GREEN, AMBER, RED):
 
         if salvar_e:
             atualizar_projeto(p["id"],{"nome":nome_e,"tipo":tipo_e,"va_ggf":va_e,"responsavel":resp_e,
-                "descricao":desc_e,"obs":obs_e,"status":status_e,"inicio":str(inicio_e),"termino":str(termino_e),
+                "descricao":desc_e,"obs":obs_e,"status":status_e,
+                "inicio":str(data_inicio_auto) if data_inicio_auto else "",
+                "termino":str(data_fim_auto) if data_fim_auto else "",
                 "mes_primeiro_retorno":str(mpr_e),"previsto_unidade":prev_e,"previsto_custos":prev_c,
                 "numero_projeto":num_e,"lider_projeto":lid_e,"integrantes":integ_e,"revisao":rev_e,
                 "check_a3":int(ck_a3_e),"check_memoria":int(ck_mem_e),"check_formalizado":int(ck_for_e),
@@ -119,7 +125,7 @@ def render_editor_novo(p, user, is_cc, GREEN, AMBER, RED):
     with sub_a3:
         _render_a3(p["id"], colors)
     with sub_e:
-        _render_estrutura(p["id"], colors)
+        _render_estrutura(p["id"], user, colors)
     with sub_g:
         _render_gantt(p["id"], colors)
 
