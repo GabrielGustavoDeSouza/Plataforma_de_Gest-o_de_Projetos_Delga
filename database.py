@@ -17,26 +17,81 @@ def get_engine():
     return True
 
 def _ensure_db():
-    """Garante que o banco existe e está com o schema atualizado. init_db()
-    é idempotente (CREATE TABLE IF NOT EXISTS + ALTER TABLE em try/except),
-    então rodar sempre aqui — não só quando o arquivo não existe — garante
-    que uma coluna/tabela nova apareça mesmo se a primeira página acessada
-    depois de um deploy não for o Dashboard Global."""
-    init_db()
+    """Garante que o banco existe (cria tudo só na primeira vez) e que o
+    schema está atualizado (roda a migração leve sempre, mesmo depois —
+    é barata e não recria nada, então não disputa lock com outra sessão
+    inicializando ao mesmo tempo logo depois de um deploy)."""
+    if not os.path.exists(DB_PATH):
+        init_db()
+    else:
+        _migrar_schema()
 
 def get_conn():
     _ensure_db()
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=15000")
     return conn
 
+def _migrar_schema():
+    """Só ALTER TABLE / CREATE TABLE IF NOT EXISTS pras tabelas novas —
+    rápido e seguro de rodar toda vez, mesmo com várias sessões batendo
+    ao mesmo tempo logo após um reboot."""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=15)
+        conn.execute("PRAGMA busy_timeout=15000")
+        c = conn.cursor()
+        for _sql in [
+            "ALTER TABLE projetos ADD COLUMN ganho_unico INTEGER DEFAULT 0",
+            "ALTER TABLE projetos ADD COLUMN origem TEXT DEFAULT 'aplicado'",
+            "ALTER TABLE projetos ADD COLUMN numero_projeto TEXT",
+            "ALTER TABLE projetos ADD COLUMN lider_projeto TEXT",
+            "ALTER TABLE projetos ADD COLUMN integrantes TEXT",
+            "ALTER TABLE projetos ADD COLUMN revisao TEXT",
+            "ALTER TABLE projetos ADD COLUMN replanejamentos INTEGER DEFAULT 0",
+        ]:
+            try: c.execute(_sql)
+            except sqlite3.OperationalError: pass
+        for _sql in [
+            """CREATE TABLE IF NOT EXISTS projeto_a3 (
+                projeto_id INTEGER PRIMARY KEY REFERENCES projetos(id) ON DELETE CASCADE,
+                objetivo_geral TEXT, proposta_desenvolvimento TEXT, situacao_atual TEXT,
+                metas_entregas TEXT, premissas_restricoes TEXT, acompanhamento_indicadores TEXT,
+                atualizado_em TEXT DEFAULT (datetime('now')))""",
+            """CREATE TABLE IF NOT EXISTS projeto_a3_midias (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                projeto_id INTEGER NOT NULL REFERENCES projetos(id) ON DELETE CASCADE,
+                campo TEXT NOT NULL,
+                nome_arquivo TEXT, mime_type TEXT, dados_b64 TEXT,
+                criado_em TEXT DEFAULT (datetime('now')))""",
+            """CREATE TABLE IF NOT EXISTS projeto_evidencias (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                projeto_id INTEGER NOT NULL REFERENCES projetos(id) ON DELETE CASCADE,
+                nome_arquivo TEXT, mime_type TEXT, dados_b64 TEXT,
+                criado_em TEXT DEFAULT (datetime('now')))""",
+            """CREATE TABLE IF NOT EXISTS projeto_atividades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                projeto_id INTEGER NOT NULL REFERENCES projetos(id) ON DELETE CASCADE,
+                ordem INTEGER NOT NULL DEFAULT 0,
+                nome TEXT NOT NULL, responsavel TEXT,
+                inicio_previsto TEXT, termino_previsto TEXT,
+                progresso_real REAL DEFAULT 0, acao TEXT,
+                criado_em TEXT DEFAULT (datetime('now')))""",
+        ]:
+            try: c.execute(_sql)
+            except sqlite3.OperationalError: pass
+        conn.commit(); conn.close()
+    except sqlite3.OperationalError:
+        pass  # outra sessão já está migrando/inicializando ao mesmo tempo — segue o jogo
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=15000")
     c = conn.cursor()
     c.execute("""CREATE TABLE IF NOT EXISTS usuarios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
