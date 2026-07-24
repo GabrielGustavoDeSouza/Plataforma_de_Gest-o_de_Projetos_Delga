@@ -182,7 +182,12 @@ with st.sidebar:
         opcoes = ["🏠 Dashboard Global","🏭 Minha Unidade","👤 Minha Conta"]
     else:
         opcoes = ["🏠 Dashboard Global","👤 Minha Conta"]
-    pagina = st.radio("", opcoes, label_visibility="collapsed")
+    pagina = st.radio("", opcoes, label_visibility="collapsed", key="pagina_atual")
+
+    if pagina == "➕ Novo Projeto" and st.session_state.get("_pagina_anterior") != "➕ Novo Projeto":
+        from pages.novo_projeto import _limpar_estado_novo_projeto
+        _limpar_estado_novo_projeto()
+    st.session_state["_pagina_anterior"] = pagina
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def fmt_card(v): return _fmt_card(v)
