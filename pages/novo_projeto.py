@@ -172,15 +172,22 @@ def _resumo_progresso_plan(linhas):
 # =====================================================================
 # GANTT — calculado em cima da Estrutura, não é preenchido à parte
 # =====================================================================
+_PALETA_GANTT = ["#8E44AD", "#F39C12", "#F1C40F", "#16A085", "#2E86DE",
+                 "#EC407A", "#26A69A", "#5C6BC0", "#EF6C00", "#7CB342"]
+
+def _escurecer(hex_cor, fator=0.72):
+    hex_cor = hex_cor.lstrip("#")
+    r, g, b = int(hex_cor[0:2],16), int(hex_cor[2:4],16), int(hex_cor[4:6],16)
+    return f"#{int(r*fator):02x}{int(g*fator):02x}{int(b*fator):02x}"
+
 def build_gantt(atividades, colors):
     """atividades: lista de dicts com nome/inicio_previsto/termino_previsto/
     progresso_real (aceita tanto registros do banco quanto linhas da grade
-    em memória, desde que usem essas chaves). Visual estilo MS Project:
-    granularidade por dia, fins de semana sombreados, linhas zebradas,
-    separador de mês e linha de "hoje"."""
-    NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
-    AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#D93B3B")
-    SILVER=colors.get("SILVER","#8A9BB0"); BLUE=colors.get("BLUE","#1428FF")
+    em memória, desde que usem essas chaves). Visual em pílulas coloridas,
+    uma cor por atividade, nome dentro da barra logo no início, e a escala
+    do eixo (dia/semana/mês) se ajusta sozinha ao tamanho do projeto."""
+    NAVY=colors.get("NAVY","#0B0F2B"); RED=colors.get("RED","#D93B3B")
+    SILVER=colors.get("SILVER","#8A9BB0")
 
     linhas = []
     for a in atividades:
@@ -196,70 +203,79 @@ def build_gantt(atividades, colors):
     data_min = min(l["ini"] for l in linhas)
     data_max = max(l["fim"] for l in linhas)
     hoje = date.today()
-    janela_ini = min(data_min, hoje) - timedelta(days=2)
-    janela_fim = max(data_max, hoje) + timedelta(days=2)
+    folga = max(2, round((data_max - data_min).days * 0.05))
+    janela_ini = min(data_min, hoje) - timedelta(days=folga)
+    janela_fim = max(data_max, hoje) + timedelta(days=folga)
     total_dias_janela = (janela_fim - janela_ini).days
 
     fig = go.Figure()
 
-    # zebra por linha (de trás pra frente, senão cobre as barras)
-    for i in range(n):
-        if i % 2 == 1:
-            fig.add_hrect(y0=i-0.5, y1=i+0.5, fillcolor="#F7F8FB", line_width=0, layer="below")
-
-    # fins de semana sombreados
-    cursor = janela_ini
-    while cursor <= janela_fim:
-        if cursor.weekday() >= 5:  # sábado=5, domingo=6
-            fig.add_vrect(x0=datetime.combine(cursor, datetime.min.time()),
-                          x1=datetime.combine(cursor+timedelta(days=1), datetime.min.time()),
-                          fillcolor="#EEF0F5", line_width=0, layer="below")
-        cursor += timedelta(days=1)
+    # fins de semana sombreados (some sozinho se o projeto for longo demais
+    # pra fazer sentido visual)
+    if total_dias_janela <= 220:
+        cursor = janela_ini
+        while cursor <= janela_fim:
+            if cursor.weekday() >= 5:
+                fig.add_vrect(x0=datetime.combine(cursor, datetime.min.time()),
+                              x1=datetime.combine(cursor+timedelta(days=1), datetime.min.time()),
+                              fillcolor="#F5F6FA", line_width=0, layer="below")
+            cursor += timedelta(days=1)
 
     # separador de mês
     cursor = date(janela_ini.year, janela_ini.month, 1)
     while cursor <= janela_fim:
         if cursor >= janela_ini:
             fig.add_vline(x=datetime.combine(cursor, datetime.min.time()),
-                         line_width=1, line_color="#D5DAE3")
-        if cursor.month == 12: cursor = date(cursor.year+1, 1, 1)
-        else: cursor = date(cursor.year, cursor.month+1, 1)
+                         line_width=1, line_color="#E4E7EF")
+        cursor = date(cursor.year+1, 1, 1) if cursor.month == 12 else date(cursor.year, cursor.month+1, 1)
 
-    # barras: trilho planejado + preenchimento real
+    # barras em pílula, uma cor por atividade — trilho claro (planejado) +
+    # camada mais forte da mesma cor (realizado, conforme % Real)
+    espessura = 0.62
     for i, l in enumerate(linhas):
         nome, ini, fim, prog = l["nome"], l["ini"], l["fim"], l["prog"]
         total_dias = (fim-ini).days + 1
         atrasada = prog < 1 and fim < hoje
+        cor_base = RED if atrasada else _PALETA_GANTT[i % len(_PALETA_GANTT)]
+        cor_realizado = _escurecer(cor_base)
+        rotulo = nome if len(nome) <= 34 else nome[:32] + "…"
+        if prog >= 1: rotulo = "✓ " + rotulo
+
         fig.add_trace(go.Bar(
             x=[total_dias], y=[tarefas[i]], base=[ini], orientation="h",
-            marker=dict(color="white", line=dict(color=SILVER, width=1.2)),
-            showlegend=False, hoverinfo="skip", width=0.5))
+            marker=dict(color=cor_base, cornerradius=14, opacity=0.55 if prog < 1 else 1),
+            text=rotulo, textposition="inside", insidetextanchor="start",
+            textfont=dict(color="white", size=12, family="Inter"),
+            showlegend=False,
+            hovertemplate=f"<b>{nome}</b><br>{ini:%d/%m/%y} – {fim:%d/%m/%y} ({total_dias}d)<br>Real: {prog*100:.0f}%<extra></extra>",
+            width=espessura))
         dias_preenchidos = round(total_dias*prog)
-        if dias_preenchidos > 0:
-            cor = RED if atrasada else (GREEN if prog>=1 else BLUE)
+        if 0 < dias_preenchidos < total_dias:
             fig.add_trace(go.Bar(
                 x=[dias_preenchidos], y=[tarefas[i]], base=[ini], orientation="h",
-                marker=dict(color=cor), showlegend=False,
-                hovertemplate=f"<b>{nome}</b><br>{ini:%d/%m/%y} – {fim:%d/%m/%y} ({total_dias}d)<br>Real: {prog*100:.0f}%<extra></extra>",
-                width=0.5))
-        # rótulo de datas + % à direita da barra
-        fig.add_annotation(x=datetime.combine(fim+timedelta(days=1), datetime.min.time()), y=tarefas[i],
-                          text=f"{ini:%d/%m}–{fim:%d/%m} · {prog*100:.0f}%",
-                          showarrow=False, xanchor="left", font=dict(size=10, color=NAVY))
+                marker=dict(color=cor_realizado, cornerradius=14),
+                showlegend=False, hoverinfo="skip", width=espessura))
 
     # linha de hoje
     fig.add_vline(x=datetime.combine(hoje, datetime.min.time()), line_width=2, line_color=RED,
                  annotation_text="Hoje", annotation_position="top", annotation_font=dict(size=10, color=RED))
 
-    dtick = "D1" if total_dias_janela <= 45 else ("D7" if total_dias_janela <= 180 else "M1")
+    # granularidade do eixo se ajusta ao tamanho total do período
+    if total_dias_janela <= 21: dtick, fmt = "D1", "%d/%m"
+    elif total_dias_janela <= 70: dtick, fmt = 86400000*2, "%d/%m"
+    elif total_dias_janela <= 220: dtick, fmt = "D7", "%d/%m"
+    elif total_dias_janela <= 730: dtick, fmt = "M1", "%b/%y"
+    else: dtick, fmt = "M3", "%b/%y"
+
     fig.update_xaxes(type="date", range=[datetime.combine(janela_ini, datetime.min.time()),
                                           datetime.combine(janela_fim, datetime.min.time())],
-                     dtick=dtick, tickformat="%d/%m", tickangle=0, gridcolor="#EEF0F5",
+                     dtick=dtick, tickformat=fmt, tickangle=0, gridcolor="#EEF0F5",
                      side="top", showgrid=True)
     fig.update_yaxes(autorange="reversed", title=None, showgrid=False)
     fig.update_layout(
-        barmode="overlay", height=max(240, 42*n + 60),
-        margin=dict(l=10, r=90, t=40, b=10),
+        barmode="overlay", height=max(240, 46*n + 60),
+        margin=dict(l=10, r=20, t=40, b=10),
+        bargap=0.35,
         paper_bgcolor="white", plot_bgcolor="white",
         font=dict(family="Inter", size=12, color=NAVY),
         showlegend=False)
