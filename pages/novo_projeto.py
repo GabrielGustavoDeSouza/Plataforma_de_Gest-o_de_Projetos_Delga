@@ -173,14 +173,6 @@ def _resumo_progresso_plan(linhas):
 # =====================================================================
 # GANTT — calculado em cima da Estrutura, não é preenchido à parte
 # =====================================================================
-_PALETA_GANTT = ["#8E44AD", "#F39C12", "#F1C40F", "#16A085", "#2E86DE",
-                 "#EC407A", "#26A69A", "#5C6BC0", "#EF6C00", "#7CB342"]
-
-def _escurecer(hex_cor, fator=0.72):
-    hex_cor = hex_cor.lstrip("#")
-    r, g, b = int(hex_cor[0:2],16), int(hex_cor[2:4],16), int(hex_cor[4:6],16)
-    return f"#{int(r*fator):02x}{int(g*fator):02x}{int(b*fator):02x}"
-
 def build_gantt(atividades, colors):
     """atividades: lista de dicts com nome/inicio_previsto/termino_previsto/
     progresso_real (aceita tanto registros do banco quanto linhas da grade
@@ -204,9 +196,20 @@ def build_gantt(atividades, colors):
     data_min = min(l["ini"] for l in linhas)
     data_max = max(l["fim"] for l in linhas)
     hoje = date.today()
-    folga = max(2, round((data_max - data_min).days * 0.05))
-    janela_ini = min(data_min, hoje) - timedelta(days=folga)
-    janela_fim = max(data_max, hoje) + timedelta(days=folga)
+    span_atividades = (data_max - data_min).days
+    folga = max(2, round(span_atividades * 0.05))
+    janela_ini = data_min - timedelta(days=folga)
+    janela_fim = data_max + timedelta(days=folga)
+    # só estica a janela pra incluir "hoje" se ele estiver relativamente perto
+    # do período das atividades — senão um projeto de poucos dias lá no
+    # futuro/passado fica esmagado numa janela gigante só pra caber a
+    # linha de "hoje". Limite: até 1x o próprio tamanho do projeto de
+    # distância (mínimo 30 dias de tolerância).
+    tolerancia = timedelta(days=max(30, span_atividades))
+    mostra_linha_hoje = (janela_ini - tolerancia) <= hoje <= (janela_fim + tolerancia)
+    if mostra_linha_hoje:
+        janela_ini = min(janela_ini, hoje - timedelta(days=folga))
+        janela_fim = max(janela_fim, hoje + timedelta(days=folga))
     total_dias_janela = (janela_fim - janela_ini).days
 
     fig = go.Figure()
@@ -230,36 +233,34 @@ def build_gantt(atividades, colors):
                          line_width=1, line_color="#E4E7EF")
         cursor = date(cursor.year+1, 1, 1) if cursor.month == 12 else date(cursor.year, cursor.month+1, 1)
 
-    # barras em pílula, uma cor por atividade — trilho claro (planejado) +
-    # camada mais forte da mesma cor (realizado, conforme % Real)
-    espessura = 0.62
+    # barras estilo grade: trilho fino com borda (planejado) + preenchimento
+    # sólido conforme % Real, cor por status (não por atividade) — igual ao
+    # modelo escolhido
+    espessura = 0.55
     for i, l in enumerate(linhas):
         nome, ini, fim, prog = l["nome"], l["ini"], l["fim"], l["prog"]
         total_dias = (fim-ini).days + 1
         atrasada = prog < 1 and fim < hoje
-        cor_base = RED if atrasada else _PALETA_GANTT[i % len(_PALETA_GANTT)]
-        cor_realizado = _escurecer(cor_base)
-        rotulo = nome if len(nome) <= 34 else nome[:32] + "…"
-        if prog >= 1: rotulo = "✓ " + rotulo
+        concluida = prog >= 1
+        cor = RED if atrasada else ("#639922" if concluida else ("#378ADD" if prog > 0 else SILVER))
 
         fig.add_trace(go.Bar(
             x=[total_dias], y=[tarefas[i]], base=[ini], orientation="h",
-            marker=dict(color=cor_base, cornerradius=14, opacity=0.55 if prog < 1 else 1),
-            text=rotulo, textposition="inside", insidetextanchor="start",
-            textfont=dict(color="white", size=12, family="Inter"),
-            showlegend=False,
-            hovertemplate=f"<b>{nome}</b><br>{ini:%d/%m/%y} – {fim:%d/%m/%y} ({total_dias}d)<br>Real: {prog*100:.0f}%<extra></extra>",
-            width=espessura))
+            marker=dict(color="white", cornerradius=4, line=dict(color=cor, width=1.2)),
+            showlegend=False, hoverinfo="skip", width=espessura))
         dias_preenchidos = round(total_dias*prog)
-        if 0 < dias_preenchidos < total_dias:
+        if dias_preenchidos > 0:
             fig.add_trace(go.Bar(
                 x=[dias_preenchidos], y=[tarefas[i]], base=[ini], orientation="h",
-                marker=dict(color=cor_realizado, cornerradius=14),
-                showlegend=False, hoverinfo="skip", width=espessura))
+                marker=dict(color=cor, cornerradius=3), showlegend=False,
+                hovertemplate=f"<b>{nome}</b><br>{ini:%d/%m/%y} – {fim:%d/%m/%y} ({total_dias}d)<br>Real: {prog*100:.0f}%<extra></extra>",
+                width=espessura*0.82))
 
-    # linha de hoje
-    fig.add_vline(x=datetime.combine(hoje, datetime.min.time()), line_width=2, line_color=RED,
-                 annotation_text="Hoje", annotation_position="top", annotation_font=dict(size=10, color=RED))
+    # linha de hoje — só desenha se ela cabe na janela sem distorcer o resto
+    if mostra_linha_hoje:
+        fig.add_vline(x=datetime.combine(hoje, datetime.min.time()), line_width=2, line_color=RED,
+                     annotation_text="Hoje", annotation_position="top", annotation_font=dict(size=10, color=RED))
+
 
     # granularidade do eixo se ajusta ao tamanho total do período
     if total_dias_janela <= 21: dtick, fmt = "D1", "%d/%m"
@@ -342,13 +343,30 @@ def _render_estrutura_db(pid, user, colors):
     elif ativs_db:
         st.success("✅ Todas as atividades concluídas!")
 
+def _hoje_fora_do_periodo(atividades):
+    """True se 'hoje' estiver longe demais do período das atividades pro
+    Gantt ter incluído a linha de hoje (mesmo critério do build_gantt)."""
+    datas_ini = [_parse_date(a.get("inicio_previsto")) for a in atividades]
+    datas_fim = [_parse_date(a.get("termino_previsto")) for a in atividades]
+    datas_ini = [d for d in datas_ini if d]; datas_fim = [d for d in datas_fim if d]
+    if not datas_ini or not datas_fim: return False, None
+    data_min, data_max = min(datas_ini), max(datas_fim)
+    hoje = date.today()
+    span = (data_max - data_min).days
+    tolerancia = timedelta(days=max(30, span))
+    return not ((data_min - tolerancia) <= hoje <= (data_max + tolerancia)), hoje
+
 def _render_gantt_db(pid, colors):
     ativs = [a for a in listar_atividades(pid) if a.get("inicio_previsto") and a.get("termino_previsto")]
     if not ativs:
         st.info("Preencha a **Estrutura** com Início e Término previstos pra ver o Gantt aqui.")
         return
     st.caption("A barra tem o tamanho do planejado e é pintada conforme o % Progresso Real. "
-              "A linha pontilhada vermelha é hoje. Vermelho na barra = atividade atrasada.")
+              "Vermelho na barra = atividade atrasada.")
+    fora, hoje = _hoje_fora_do_periodo(ativs)
+    if fora and hoje:
+        st.caption(f"📅 Hoje ({hoje:%d/%m/%Y}) está fora do período das atividades — "
+                  f"a linha de hoje não aparece pra não distorcer a escala do gráfico.")
     fig = build_gantt(ativs, colors)
     if fig:
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
@@ -684,7 +702,12 @@ def _render_novo_projeto(user, colors):
     st.markdown("### 📊 Gantt")
     if linhas_ativ:
         st.caption("Prévia — a barra tem o tamanho do planejado e é pintada conforme o % Progresso Real.")
-        fig = build_gantt(_linhas_para_gantt(linhas_ativ), colors)
+        ativs_gantt = _linhas_para_gantt(linhas_ativ)
+        fora, hoje = _hoje_fora_do_periodo(ativs_gantt)
+        if fora and hoje:
+            st.caption(f"📅 Hoje ({hoje:%d/%m/%Y}) está fora do período das atividades — "
+                      f"a linha de hoje não aparece pra não distorcer a escala do gráfico.")
+        fig = build_gantt(ativs_gantt, colors)
         if fig:
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     else:
