@@ -35,15 +35,45 @@ def _arquivo_para_b64(uploaded_file, limite_mb=8):
         return None, f"Arquivo maior que {limite_mb}MB — deixa o backup muito pesado, escolhe um menor."
     return base64.b64encode(dados).decode("utf-8"), None
 
+def _extrair_imagens_a3(ws):
+    """Localiza as imagens coladas na aba 'Escopo A3' e descobre em qual dos
+    6 blocos cada uma está, pela posição da âncora na planilha (mesma área
+    de células que o texto daquele bloco ocupa)."""
+    blocos = {  # campo -> (col0, col1, row0, row1), 0-indexed
+        "objetivo_geral": (2, 7, 14, 19),
+        "proposta_desenvolvimento": (9, 15, 14, 42),
+        "situacao_atual": (2, 7, 22, 34),
+        "metas_entregas": (2, 7, 37, 42),
+        "premissas_restricoes": (2, 7, 45, 55),
+        "acompanhamento_indicadores": (9, 15, 45, 55),
+    }
+    resultado = {k: [] for k in blocos}
+    for i, img in enumerate(getattr(ws, "_images", [])):
+        try:
+            col0, row0 = img.anchor._from.col, img.anchor._from.row
+        except Exception:
+            continue
+        alvo = next((campo for campo, (c0,c1,r0,r1) in blocos.items()
+                     if c0 <= col0 <= c1 and r0 <= row0 <= r1), None)
+        if not alvo: continue
+        try:
+            dados_bytes = img._data()
+        except Exception:
+            continue
+        ext = (getattr(img, "format", None) or "png").lower()
+        resultado[alvo].append((f"imagem_{alvo}_{i+1}.{ext}", f"image/{ext}", dados_bytes))
+    return resultado
+
 def _importar_gestao_projetos_excel(arquivo):
     """Lê o Excel padrão 'Gestão de Projetos' (abas 'Escopo A3' e
     'Estrutura', modelo que a Delga já usa) e devolve um dict pronto pra
-    pré-popular a criação do projeto: cabeçalho, os 6 blocos do A3 e a
-    lista de atividades. Se alguma aba não existir ou algum campo não
-    bater, simplesmente vem vazio — nunca derruba o resto do import."""
+    pré-popular a criação do projeto: cabeçalho, os 6 blocos do A3 (texto
+    + imagens coladas) e a lista de atividades. Se alguma aba não existir
+    ou algum campo não bater, simplesmente vem vazio — nunca derruba o
+    resto do import."""
     import openpyxl
     wb = openpyxl.load_workbook(arquivo, data_only=True)
-    resultado = {"cabecalho": {}, "a3": {}, "atividades": []}
+    resultado = {"cabecalho": {}, "a3": {}, "imagens": {}, "atividades": []}
 
     if "Escopo A3" in wb.sheetnames:
         ws = wb["Escopo A3"]
@@ -68,6 +98,10 @@ def _importar_gestao_projetos_excel(arquivo):
             "premissas_restricoes": val("C46"),
             "acompanhamento_indicadores": val("J46"),
         }
+        try:
+            resultado["imagens"] = _extrair_imagens_a3(ws)
+        except Exception:
+            resultado["imagens"] = {}
 
     if "Estrutura" in wb.sheetnames:
         ws = wb["Estrutura"]
@@ -369,6 +403,61 @@ def _render_a3_db(pid, colors):
             st.session_state[ctr_ev_key] = ctr_ev + 1
             st.success("✅ Evidência anexada."); st.rerun()
 
+def _processar_arquivo_pronto():
+    """Lê o arquivo em st.session_state['npn_arq_pronto'] (se tiver e ainda
+    não tiver sido processado) e pré-popula os campos de Fundamentos/A3/
+    Estrutura/imagens. PRECISA rodar antes de qualquer widget desses campos
+    ser desenhado na tela — o Streamlit não deixa mudar o valor de um campo
+    depois que ele já apareceu na mesma rodada."""
+    if st.session_state.get("npn_tem_arquivo") != "Sim, vou anexar":
+        return None
+    arq_pronto = st.session_state.get("npn_arq_pronto")
+    if arq_pronto is None or st.session_state.get("npn_arq_processado"):
+        return None
+    try:
+        dados_imp = _importar_gestao_projetos_excel(arq_pronto)
+    except Exception as e:
+        return ("error", f"Não consegui ler esse arquivo: {e}")
+
+    cab = dados_imp["cabecalho"]
+    if cab.get("nome"): st.session_state["npn_nome"] = cab["nome"]
+    if cab.get("numero_projeto"): st.session_state["npn_numero"] = cab["numero_projeto"]
+    if cab.get("lider_projeto"): st.session_state["npn_lider"] = cab["lider_projeto"]
+    if cab.get("integrantes"): st.session_state["npn_integrantes"] = cab["integrantes"]
+    if cab.get("revisao"): st.session_state["npn_revisao"] = cab["revisao"]
+
+    for campo, texto in dados_imp["a3"].items():
+        if texto: st.session_state[f"npn_a3_{campo}"] = texto
+
+    n_imgs = 0
+    for campo, imgs in dados_imp.get("imagens", {}).items():
+        if not imgs: continue
+        chave = f"npn_imgs_{campo}"
+        if chave not in st.session_state: st.session_state[chave] = []
+        for nome_img, mime_img, dados_bytes in imgs:
+            st.session_state[chave].append({
+                "nome": nome_img, "tipo": mime_img,
+                "b64": base64.b64encode(dados_bytes).decode("utf-8")})
+            n_imgs += 1
+
+    if dados_imp["atividades"]:
+        df_imp = pd.DataFrame([{
+            "Atividade": a["nome"], "Responsável": a.get("responsavel") or "",
+            "Ação": a.get("acao") or "",
+            "Início Previsto": _parse_date(a.get("inicio")),
+            "Término Previsto": _parse_date(a.get("termino")),
+            "% Progresso Real": a.get("progresso_real") or 0,
+        } for a in dados_imp["atividades"]])
+        df_imp = pd.concat([df_imp, _estrutura_df_vazia(3)], ignore_index=True)
+        st.session_state["npn_estrutura_df"] = df_imp
+        st.session_state.pop("npn_estrutura_editor", None)  # força a grade a reler a seed nova
+
+    st.session_state["npn_arq_processado"] = True
+    n_ativ_imp = len(dados_imp["atividades"])
+    n_a3_imp = sum(1 for v in dados_imp["a3"].values() if v)
+    return ("success", f"✅ Importei {n_ativ_imp} atividade(s), {n_a3_imp} bloco(s) do A3 e "
+                       f"{n_imgs} imagem(ns)! Role a página pra revisar tudo antes de clicar em Criar Projeto.")
+
 # Aliases mantidos pra compatibilidade com quem já importa esses nomes
 _render_a3 = _render_a3_db
 _render_estrutura = _render_estrutura_db
@@ -387,6 +476,11 @@ def _limpar_estado_novo_projeto():
 
 def _render_novo_projeto(user, colors):
     NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
+
+    # Processa um arquivo pronto ANTES de desenhar qualquer campo — precisa
+    # ser aqui em cima, senão o Streamlit barra a alteração dos campos que
+    # já renderizaram nesta mesma rodada.
+    resultado_import = _processar_arquivo_pronto()
 
     unidades = listar_unidades()
     nomes_u  = [u["nome"] for u in unidades]
@@ -453,39 +547,10 @@ def _render_novo_projeto(user, colors):
     tem_arquivo = st.radio("Tem o arquivo pronto?", ["Não, vou preencher manualmente","Sim, vou anexar"],
                            key="npn_tem_arquivo", horizontal=True, label_visibility="collapsed")
     if tem_arquivo.startswith("Sim"):
-        arq_pronto = st.file_uploader("Excel do projeto (Escopo A3 + Estrutura)", type=["xlsx"], key="npn_arq_pronto")
-        if arq_pronto is not None and not st.session_state.get("npn_arq_processado"):
-            try:
-                dados_imp = _importar_gestao_projetos_excel(arq_pronto)
-            except Exception as e:
-                dados_imp = None
-                st.error(f"Não consegui ler esse arquivo: {e}")
-            if dados_imp:
-                cab = dados_imp["cabecalho"]
-                if cab.get("nome"): st.session_state["npn_nome"] = cab["nome"]
-                if cab.get("numero_projeto"): st.session_state["npn_numero"] = cab["numero_projeto"]
-                if cab.get("lider_projeto"): st.session_state["npn_lider"] = cab["lider_projeto"]
-                if cab.get("integrantes"): st.session_state["npn_integrantes"] = cab["integrantes"]
-                if cab.get("revisao"): st.session_state["npn_revisao"] = cab["revisao"]
-                for campo, texto in dados_imp["a3"].items():
-                    if texto: st.session_state[f"npn_a3_{campo}"] = texto
-                if dados_imp["atividades"]:
-                    df_imp = pd.DataFrame([{
-                        "Atividade": a["nome"], "Responsável": a.get("responsavel") or "",
-                        "Ação": a.get("acao") or "",
-                        "Início Previsto": _parse_date(a.get("inicio")),
-                        "Término Previsto": _parse_date(a.get("termino")),
-                        "% Progresso Real": a.get("progresso_real") or 0,
-                    } for a in dados_imp["atividades"]])
-                    df_imp = pd.concat([df_imp, _estrutura_df_vazia(3)], ignore_index=True)
-                    st.session_state["npn_estrutura_df"] = df_imp
-                    st.session_state.pop("npn_estrutura_editor", None)  # força a grade a reler a seed nova
-                st.session_state["npn_arq_processado"] = True
-                n_ativ_imp = len(dados_imp["atividades"])
-                n_a3_imp = sum(1 for v in dados_imp["a3"].values() if v)
-                st.success(f"✅ Importei {n_ativ_imp} atividade(s) e {n_a3_imp} bloco(s) do A3! "
-                          f"Role a página pra revisar tudo antes de clicar em Criar Projeto.")
-                st.rerun()
+        st.file_uploader("Excel do projeto (Escopo A3 + Estrutura)", type=["xlsx"], key="npn_arq_pronto")
+        if resultado_import:
+            tipo_msg, texto_msg = resultado_import
+            (st.error if tipo_msg == "error" else st.success)(texto_msg)
         if st.session_state.get("npn_arq_processado"):
             st.info("📄 Arquivo já importado — os campos abaixo foram pré-preenchidos. Pode revisar e "
                    "ajustar qualquer coisa normalmente antes de criar o projeto.")
