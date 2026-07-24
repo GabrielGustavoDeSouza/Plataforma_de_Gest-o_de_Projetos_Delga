@@ -88,6 +88,7 @@ def _importar_gestao_projetos_excel(arquivo):
             "numero_projeto": val("P5"),
             "integrantes": val("G5"),
             "lider_projeto": val("D7"),
+            "unidade": val("G7"),
             "revisao": val("P2").replace("Rev.:", "").replace("Rev:", "").strip(),
         }
         resultado["a3"] = {
@@ -425,7 +426,7 @@ def _processar_arquivo_pronto():
     Estrutura/imagens. PRECISA rodar antes de qualquer widget desses campos
     ser desenhado na tela — o Streamlit não deixa mudar o valor de um campo
     depois que ele já apareceu na mesma rodada."""
-    if st.session_state.get("npn_tem_arquivo") != "Sim, vou anexar":
+    if not str(st.session_state.get("npn_tem_arquivo") or "").startswith("Sim"):
         return None
     arq_pronto = st.session_state.get("npn_arq_pronto")
     if arq_pronto is None or st.session_state.get("npn_arq_processado"):
@@ -441,6 +442,11 @@ def _processar_arquivo_pronto():
     if cab.get("lider_projeto"): st.session_state["npn_lider"] = cab["lider_projeto"]
     if cab.get("integrantes"): st.session_state["npn_integrantes"] = cab["integrantes"]
     if cab.get("revisao"): st.session_state["npn_revisao"] = cab["revisao"]
+    if cab.get("unidade"):
+        alvo = cab["unidade"].strip().lower()
+        for u in listar_unidades():
+            if u["nome"].strip().lower() == alvo:
+                st.session_state["npn_uni"] = u["nome"]; break
 
     for campo, texto in dados_imp["a3"].items():
         if texto: st.session_state[f"npn_a3_{campo}"] = texto
@@ -498,6 +504,30 @@ def _render_novo_projeto(user, colors):
     # já renderizaram nesta mesma rodada.
     resultado_import = _processar_arquivo_pronto()
 
+    # ── 0. Primeira pergunta: já tem o arquivo pronto? ──────────────────
+    st.markdown("### 👋 Antes de começar")
+    st.markdown("**Você já tem o Excel do projeto (Escopo A3 + Estrutura) preenchido?**")
+    st.caption("Se tiver bem preenchido, eu já trago Nome, Nº do Projeto, Líder, Integrantes, os 6 blocos "
+              "do A3 (com imagens coladas!) e todas as atividades da Estrutura — você só revisa e ajusta "
+              "o que quiser conforme for descendo a página. Se não tiver, sem problema, é só preencher "
+              "tudo manualmente daqui pra baixo.")
+    tem_arquivo = st.radio("Tem o arquivo pronto?", ["Ainda não, vou preencher manualmente","Sim, já tenho!"],
+                           key="npn_tem_arquivo", horizontal=True, label_visibility="collapsed")
+    if tem_arquivo.startswith("Sim"):
+        st.file_uploader("Excel do projeto (Escopo A3 + Estrutura)", type=["xlsx"], key="npn_arq_pronto")
+        if resultado_import:
+            tipo_msg, texto_msg = resultado_import
+            (st.error if tipo_msg == "error" else st.success)(texto_msg)
+        if st.session_state.get("npn_arq_processado"):
+            st.info("📄 Arquivo já importado — os campos daqui pra baixo já vêm pré-preenchidos. Pode "
+                   "revisar e ajustar qualquer coisa normalmente antes de criar o projeto.")
+            if st.button("↩️ Importar outro arquivo / desfazer", key="npn_desfazer_import"):
+                st.session_state.pop("npn_arq_processado", None)
+                st.session_state.pop("npn_arq_pronto", None)
+                st.rerun()
+
+    st.markdown("---")
+
     unidades = listar_unidades()
     nomes_u  = [u["nome"] for u in unidades]
 
@@ -552,28 +582,6 @@ def _render_novo_projeto(user, colors):
     c1,c2 = st.columns([2,4])
     with c1: link1_tit = st.text_input("Nome 1", placeholder="ex: Planilha de Apoio", key="npn_l1t")
     with c2: link1_url = st.text_input("URL 1", placeholder="https://...", key="npn_l1u")
-
-    st.markdown("---")
-
-    # ── 1.5 Arquivo de Projeto Pronto? ──────────────────────────────────
-    st.markdown("### 📁 Já tem um Arquivo de Projeto pronto?")
-    st.caption("Se você já preencheu o Excel padrão (Escopo A3 + Estrutura), suba ele aqui que eu preencho "
-              "A3 e Estrutura sozinho — você só revisa antes de criar. Se não, é só seguir preenchendo "
-              "manualmente aqui embaixo.")
-    tem_arquivo = st.radio("Tem o arquivo pronto?", ["Não, vou preencher manualmente","Sim, vou anexar"],
-                           key="npn_tem_arquivo", horizontal=True, label_visibility="collapsed")
-    if tem_arquivo.startswith("Sim"):
-        st.file_uploader("Excel do projeto (Escopo A3 + Estrutura)", type=["xlsx"], key="npn_arq_pronto")
-        if resultado_import:
-            tipo_msg, texto_msg = resultado_import
-            (st.error if tipo_msg == "error" else st.success)(texto_msg)
-        if st.session_state.get("npn_arq_processado"):
-            st.info("📄 Arquivo já importado — os campos abaixo foram pré-preenchidos. Pode revisar e "
-                   "ajustar qualquer coisa normalmente antes de criar o projeto.")
-            if st.button("↩️ Importar outro arquivo / desfazer", key="npn_desfazer_import"):
-                st.session_state.pop("npn_arq_processado", None)
-                st.session_state.pop("npn_arq_pronto", None)
-                st.rerun()
 
     st.markdown("---")
 
