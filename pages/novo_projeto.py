@@ -131,13 +131,27 @@ def _importar_gestao_projetos_excel(arquivo):
                     def g(chave):
                         c = col_map.get(chave)
                         return ws.cell(r, c).value if c else None
+                    def gcell(chave):
+                        c = col_map.get(chave)
+                        return ws.cell(r, c) if c else None
+                    prog_bruto = g("progresso_real") or 0
+                    cel_prog = gcell("progresso_real")
+                    formatado_pct = bool(cel_prog is not None and "%" in str(cel_prog.number_format or ""))
+                    try:
+                        prog_norm = float(prog_bruto)
+                        # célula formatada como % guarda "100%" como o número
+                        # bruto 1.0, não 100 — normaliza pra escala 0-100.
+                        if formatado_pct and prog_norm <= 1:
+                            prog_norm *= 100
+                    except (TypeError, ValueError):
+                        prog_norm = 0
                     resultado["atividades"].append({
                         "nome": str(nome).strip(),
                         "responsavel": str(g("responsavel") or ""),
                         "acao": str(g("acao") or ""),
                         "inicio": g("inicio"),
                         "termino": g("termino"),
-                        "progresso_real": g("progresso_real") or 0,
+                        "progresso_real": prog_norm,
                     })
     return resultado
 
@@ -236,6 +250,9 @@ def build_gantt(atividades, colors):
     # barras estilo grade: trilho fino com borda (planejado) + preenchimento
     # sólido conforme % Real, cor por status (não por atividade) — igual ao
     # modelo escolhido
+    # Nota: com base em data, o Plotly espera o comprimento da barra na
+    # mesma unidade do eixo (ms) — por isso os dias são convertidos ×86400000.
+    DIA_MS = 86400000
     espessura = 0.55
     for i, l in enumerate(linhas):
         nome, ini, fim, prog = l["nome"], l["ini"], l["fim"], l["prog"]
@@ -245,13 +262,13 @@ def build_gantt(atividades, colors):
         cor = RED if atrasada else ("#639922" if concluida else ("#378ADD" if prog > 0 else SILVER))
 
         fig.add_trace(go.Bar(
-            x=[total_dias], y=[tarefas[i]], base=[ini], orientation="h",
+            x=[total_dias*DIA_MS], y=[tarefas[i]], base=[ini], orientation="h",
             marker=dict(color="white", cornerradius=4, line=dict(color=cor, width=1.2)),
             showlegend=False, hoverinfo="skip", width=espessura))
         dias_preenchidos = round(total_dias*prog)
         if dias_preenchidos > 0:
             fig.add_trace(go.Bar(
-                x=[dias_preenchidos], y=[tarefas[i]], base=[ini], orientation="h",
+                x=[dias_preenchidos*DIA_MS], y=[tarefas[i]], base=[ini], orientation="h",
                 marker=dict(color=cor, cornerradius=3), showlegend=False,
                 hovertemplate=f"<b>{nome}</b><br>{ini:%d/%m/%y} – {fim:%d/%m/%y} ({total_dias}d)<br>Real: {prog*100:.0f}%<extra></extra>",
                 width=espessura*0.82))
