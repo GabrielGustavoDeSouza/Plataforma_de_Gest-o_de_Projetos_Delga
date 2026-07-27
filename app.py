@@ -11,13 +11,18 @@ from database import (listar_unidades, listar_projetos, get_lancamentos,
                       APP_VERSION, PERFIS_LBL, MESES_PT)
 from auth import login_page, sidebar_user, require_login
 from assets import LOGO_DATA_URI
+from theme import cores, tema_atual, toggle_tema_button
 
 st.set_page_config(page_title="Plataforma Delga", page_icon="🏭",
                    layout="wide", initial_sidebar_state="expanded")
 
-# ── Paleta Grupo Delga ───────────────────────────────────────────────────────
-NAVY="#0B0F2B"; BLUE="#1B2A9E"; BLUE2="#33459E"; GREEN="#1AA260"
-AMBER="#E8A838"; RED="#D93B3B"; TEAL="#20C997"; SILVER="#8A9BB0"; LIGHT="#F4F6FB"
+# ── Paleta Grupo Delga — reage ao tema (claro/escuro) escolhido na sidebar ──
+C = cores()
+NAVY=C["NAVY"]; BLUE=C["BLUE"]; BLUE2=C["BLUE2"]; GREEN=C["GREEN"]
+AMBER=C["AMBER"]; RED=C["RED"]; TEAL=C["TEAL"]; SILVER=C["SILVER"]; LIGHT=C["LIGHT"]
+BG=C["BG"]; SURFACE=C["SURFACE"]; SURFACE_2=C["SURFACE_2"]; BORDER=C["BORDER"]
+TEXT=C["TEXT"]; TEXT_MUTED=C["TEXT_MUTED"]; HOVER=C["HOVER"]
+SHADOW_1=C["SHADOW_1"]; SHADOW_2=C["SHADOW_2"]; INPUT_BG=C["INPUT_BG"]; SIDEBAR_BG=C["SIDEBAR_BG"]
 
 # Cor fixa por unidade — mesma cor em todo gráfico, sempre, independente de
 # filtro ou ordem (ancorada no padrão já usado: Ferraz azul, Diadema verde,
@@ -39,14 +44,27 @@ def cor_unidade(nome, i=0):
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-html,body,[class*="css"]{{font-family:'Inter',sans-serif;}}
+html,body,[class*="css"]{{font-family:'Inter',sans-serif;color:{TEXT};}}
 .block-container{{padding-top:0!important;padding-bottom:2rem;max-width:1400px;}}
 #MainMenu{{visibility:hidden;}}footer{{visibility:hidden;}}
 header[data-testid="stHeader"]{{display:none;}}
+[data-testid="stAppViewContainer"], .stApp{{background:{BG}!important;}}
+[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] span,
+[data-testid="stMarkdownContainer"] li, label, .stCaption, [data-testid="stCaptionContainer"]{{color:{TEXT};}}
+[data-testid="stCaptionContainer"], .stCaption, small{{color:{TEXT_MUTED}!important;}}
+[data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea,
+[data-testid="stNumberInput"] input, [data-testid="stDateInput"] input,
+[data-baseweb="select"] > div, [data-baseweb="input"]{{
+  background:{INPUT_BG}!important;color:{TEXT}!important;border-color:{BORDER}!important;}}
+[data-testid="stDataFrame"], [data-testid="stDataEditor"]{{background:{SURFACE};border-radius:8px;}}
+button[kind="secondary"], button[kind="secondaryFormSubmit"]{{
+  background:{SURFACE}!important;color:{TEXT}!important;border-color:{BORDER}!important;}}
+button[kind="secondary"] p, button[kind="secondaryFormSubmit"] p{{color:{TEXT}!important;}}
 /* Sidebar sempre fixa e visível — impede que fique escondida/minimizada */
 section[data-testid="stSidebar"]{{
   min-width:280px!important;width:280px!important;
   transform:none!important;visibility:visible!important;
+  background:{SIDEBAR_BG}!important;border-right:1px solid {BORDER};
 }}
 section[data-testid="stSidebar"][aria-expanded="false"]{{
   min-width:280px!important;width:280px!important;margin-left:0!important;
@@ -114,9 +132,9 @@ label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"]{{
   font-size:11px;font-weight:600;padding:5px 14px;border-radius:20px;
   white-space:nowrap;border:1px solid rgba(255,255,255,.16);position:relative;z-index:1;}}
 .kpi-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin-bottom:16px;}}
-.kpi-card{{background:white;border-radius:12px;padding:16px 18px;
+.kpi-card{{background:{SURFACE};border-radius:12px;padding:16px 18px;
   border-left:4px solid {BLUE};
-  box-shadow:0 1px 4px rgba(11,15,43,.06),0 4px 16px rgba(11,15,43,.04);}}
+  box-shadow:0 1px 4px {SHADOW_1},0 4px 16px {SHADOW_2};}}
 .kpi-card.green{{border-left-color:{GREEN};}}
 .kpi-card.amber{{border-left-color:{AMBER};}}
 .kpi-card.red{{border-left-color:{RED};}}
@@ -124,18 +142,18 @@ label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"]{{
   letter-spacing:.8px;margin-bottom:6px;}}
 .kpi-v{{font-size:20px;font-weight:700;color:{NAVY};line-height:1.1;}}
 .kpi-d{{font-size:10px;color:{SILVER};margin-top:3px;}}
-.sc{{background:white;border-radius:12px;padding:20px 22px;
-  box-shadow:0 1px 4px rgba(11,15,43,.06),0 4px 16px rgba(11,15,43,.04);
-  margin-bottom:16px;}}
+.sc{{background:{SURFACE};border-radius:12px;padding:20px 22px;
+  box-shadow:0 1px 4px {SHADOW_1},0 4px 16px {SHADOW_2};
+  margin-bottom:16px;color:{TEXT};}}
 .st{{font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;
   letter-spacing:.7px;border-bottom:2px solid {BLUE};
   padding-bottom:6px;margin-bottom:14px;display:inline-block;}}
-.dt{{width:100%;border-collapse:collapse;font-size:12px;}}
-.dt thead th{{background:{NAVY};color:white;padding:9px 12px;
+.dt{{width:100%;border-collapse:collapse;font-size:12px;color:{TEXT};}}
+.dt thead th{{background:{NAVY};color:{BG if tema_atual()=="escuro" else "white"};padding:9px 12px;
   text-align:left;font-size:11px;font-weight:600;}}
-.dt tbody tr:nth-child(even){{background:#FAFBFC;}}
-.dt tbody tr:hover{{background:#F0F4FA;}}
-.dt tbody td{{padding:8px 12px;border-bottom:1px solid #EEF0F3;vertical-align:middle;}}
+.dt tbody tr:nth-child(even){{background:{SURFACE_2};}}
+.dt tbody tr:hover{{background:{HOVER};}}
+.dt tbody td{{padding:8px 12px;border-bottom:1px solid {BORDER};vertical-align:middle;}}
 </style>
 """, unsafe_allow_html=True)
 
