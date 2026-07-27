@@ -1,6 +1,7 @@
 import streamlit as st
 from database import autenticar
 from assets import LOGO_LIGHT_DATA_URI
+from theme import toggle_tema_button
 
 NAVY  = "#0B0F2B"
 BLUE  = "#1B2A9E"
@@ -124,6 +125,8 @@ def sidebar_user():
                letter-spacing:.4px;border:1px solid {BLUE}40;">{user.get('perfil','')}</div>
         </div>
         """, unsafe_allow_html=True)
+
+        toggle_tema_button()
 
         if st.button("🚪 Sair", use_container_width=True):
             del st.session_state["user"]
