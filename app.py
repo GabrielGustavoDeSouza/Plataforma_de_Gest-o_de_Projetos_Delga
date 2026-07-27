@@ -345,6 +345,13 @@ if pagina == "🏠 Dashboard Global":
     unidades   = listar_unidades()
     todos_proj = listar_projetos(incluir_campeao=True)
 
+    def _toca_ano(p, ano):
+        """Só conta projetos cuja curva (previsto ou saving) toca o ano
+        informado — mesmo critério usado em todo o Dashboard."""
+        if any(y==ano for (y,m) in get_curva_unidade(p["id"]).keys()): return True
+        if any(y==ano for (y,m) in get_curva_saving(p["id"]).keys()): return True
+        return False
+
     c_tit, c_uni, c_nav = st.columns([3,2,1])
     with c_tit:
         st.markdown('<span class="st">Visão Estratégica do Grupo</span>', unsafe_allow_html=True)
@@ -356,6 +363,16 @@ if pagina == "🏠 Dashboard Global":
         unidade_filtro = None if uni_pick == VISAO_GERAL else uni_pick
     with c_nav:
         ano_dash = year_nav("dash_ano")
+
+    n_iniciativas = sum(1 for p in todos_proj
+                         if (not unidade_filtro or p["unidade_nome"]==unidade_filtro)
+                         and _toca_ano(p, ano_dash))
+    quem = f"a unidade **{unidade_filtro}**" if unidade_filtro else "o **Grupo Delga**"
+    st.markdown(f"""<div style="background:linear-gradient(135deg,{NAVY} 0%,#171B4C 100%);
+         border-radius:10px;padding:14px 20px;margin-bottom:16px;">
+         <span style="color:white;font-size:15px;">📌 Em <b>{ano_dash}</b>, {quem} tem
+         <b style="color:{AMBER};font-size:17px;">{n_iniciativas}</b> iniciativa{'s' if n_iniciativas != 1 else ''}
+         mapeada{'s' if n_iniciativas != 1 else ''}.</span></div>""", unsafe_allow_html=True)
 
     render_carry_over(ano_dash, unidade_filtro)
 
@@ -585,10 +602,6 @@ if pagina == "🏠 Dashboard Global":
     # Ano: só entram projetos cuja curva (previsto ou saving) toca o ano
     # selecionado — mesmo critério usado no resto do Dashboard. Se não
     # houver nenhum projeto nesse ano, a lista fica vazia mesmo.
-    def _toca_ano(p, ano):
-        if any(y==ano for (y,m) in get_curva_unidade(p["id"]).keys()): return True
-        if any(y==ano for (y,m) in get_curva_saving(p["id"]).keys()): return True
-        return False
     pf=[p for p in pf if _toca_ano(p, ano_dash)]
     if f_st:  pf=[p for p in pf if p["status"] in f_st]
     if f_nm:  pf=[p for p in pf if f_nm.lower() in p["nome"].lower()]
