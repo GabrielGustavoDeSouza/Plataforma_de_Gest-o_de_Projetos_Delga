@@ -224,6 +224,57 @@ def render_editor_form(p, user, is_cc, GREEN, AMBER, RED):
         if st.form_submit_button("➕ Link"):
             if tit_lk and url_lk: add_link(p["id"],tit_lk,url_lk); st.success("✅"); st.rerun()
 
+def build_heatmap_saude(proj_saude, unidades_hm, NAVY, SILVER, mostrar_total=False):
+    """Grade Unidade x Status — mesma lógica/visual do Dashboard Global.
+    Concluído em escala verde, Atrasado em vermelha, os demais em azul."""
+    colunas_hm = ["Não iniciado","Em execução","Atrasado","Concluído"]
+    matriz = {u: {c:0 for c in colunas_hm} for u in unidades_hm}
+    for p in proj_saude:
+        u = p["unidade_nome"]
+        if u not in matriz: continue
+        if "Concluído" in str(p.get("status","")):
+            matriz[u]["Concluído"] += 1
+        elif linha_atrasada(p):
+            matriz[u]["Atrasado"] += 1
+        elif "Execução" in str(p.get("status","")):
+            matriz[u]["Em execução"] += 1
+        else:
+            matriz[u]["Não iniciado"] += 1
+
+    RAMPA_AZUL   = ["#E6F1FB","#B5D4F4","#85B7EB","#378ADD"]
+    RAMPA_VERDE  = ["#EAF3DE","#C0DD97","#97C459","#639922"]
+    RAMPA_VERM   = ["#FCEBEB","#F7C1C1","#F09595","#E24B4A"]
+    TEXTO_AZUL, TEXTO_VERDE, TEXTO_VERM = "#042C53", "#173404", "#4A1B0C"
+    maximos = {c: max((matriz[u][c] for u in unidades_hm), default=0) for c in colunas_hm}
+    maximo_total = max((sum(matriz[u].values()) for u in unidades_hm), default=0)
+
+    def _celula(valor, col):
+        maximo = maximos[col] or 1
+        t = valor / maximo
+        if col == "Atrasado": ramp, texto = RAMPA_VERM, TEXTO_VERM
+        elif col == "Concluído": ramp, texto = RAMPA_VERDE, TEXTO_VERDE
+        else: ramp, texto = RAMPA_AZUL, TEXTO_AZUL
+        idx = 0 if t <= 0 else (1 if t < 0.5 else (2 if t < 0.75 else 3))
+        return f'<div style="background:{ramp[idx]};color:{texto};border-radius:8px;padding:10px 0;text-align:center;font-weight:600;">{valor}</div>'
+
+    colunas_grid = colunas_hm + (["Total"] if mostrar_total else [])
+    n_cols = len(colunas_grid)
+    header_html = "".join(f'<div style="text-align:center;color:{SILVER};font-size:11px;padding:4px 0;">{c}</div>' for c in colunas_grid)
+    linhas_html = ""
+    for u in unidades_hm:
+        linhas_html += f'<div style="display:flex;align-items:center;color:{NAVY};font-size:12px;font-weight:600;">{u}</div>'
+        linhas_html += "".join(_celula(matriz[u][c], c) for c in colunas_hm)
+        if mostrar_total:
+            total_u = sum(matriz[u].values())
+            t = total_u / (maximo_total or 1)
+            idx = 0 if t <= 0 else (1 if t < 0.5 else (2 if t < 0.75 else 3))
+            ramp_cinza = ["#F1EFE8","#D3D1C7","#B4B2A9","#888780"]
+            linhas_html += f'<div style="background:{ramp_cinza[idx]};color:#2C2C2A;border-radius:8px;padding:10px 0;text-align:center;font-weight:700;">{total_u}</div>'
+
+    return f"""<div style="display:grid;grid-template-columns:130px repeat({n_cols},1fr);gap:6px;">
+      <div></div>{header_html}{linhas_html}
+    </div>"""
+
 def kpi_de_projetos(projs, ano_sel):
     """Recalcula os bignumbers (Previsto/Validado/Real/Extra DRE) restritos a
     um subconjunto de projetos — usado quando o filtro 'Projetos' está ativo,
@@ -388,6 +439,16 @@ def render(user, **colors):
   <span style="color:{GREEN};">✓ DRE:</span> BSW · Kaizen · Kaizen GR · Redução de Custo · Você Resolve · Estratégia Comercial — impacto direto e mensurável no DRE. &nbsp;
   <span style="color:#9B59B6;">↷ Não DRE:</span> Kaizen Custo Evitado · Kaizen Capital de Giro · Meta Executiva — geram valor operacional mas não reduzem GGF no DRE.
 </div>""")
+
+    # ── Saúde do Portfólio da unidade ────────────────────────────────────────
+    st.markdown('<div class="sc">', unsafe_allow_html=True)
+    st.markdown(f'<span class="st">Saúde do Portfólio — {sel}</span>', unsafe_allow_html=True)
+    st.caption("Quantos projetos estão em cada situação — quanto mais escuro, mais projetos naquela casa.")
+    if projetos_uni:
+        hc(build_heatmap_saude(projetos_uni, [sel], NAVY, SILVER))
+    else:
+        st.caption("Nenhum projeto cadastrado ainda.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Alertas colapsáveis (dois blocos independentes) ─────────────────────────
     pend_valid   = alertas_validacao(sel)
