@@ -367,12 +367,20 @@ if pagina == "🏠 Dashboard Global":
     n_iniciativas = sum(1 for p in todos_proj
                          if (not unidade_filtro or p["unidade_nome"]==unidade_filtro)
                          and _toca_ano(p, ano_dash))
+    n_total_cadastrado = sum(1 for p in todos_proj if not unidade_filtro or p["unidade_nome"]==unidade_filtro)
     quem = f"a unidade **{unidade_filtro}**" if unidade_filtro else "o **Grupo Delga**"
     st.markdown(f"""<div style="background:linear-gradient(135deg,{NAVY} 0%,#171B4C 100%);
-         border-radius:10px;padding:14px 20px;margin-bottom:16px;">
+         border-radius:10px;padding:14px 20px;margin-bottom:4px;">
          <span style="color:white;font-size:15px;">📌 Em <b>{ano_dash}</b>, {quem} tem
          <b style="color:{AMBER};font-size:17px;">{n_iniciativas}</b> iniciativa{'s' if n_iniciativas != 1 else ''}
          mapeada{'s' if n_iniciativas != 1 else ''}.</span></div>""", unsafe_allow_html=True)
+    if n_total_cadastrado != n_iniciativas:
+        st.markdown(f'<div style="font-size:11px;color:{SILVER};margin-bottom:16px;">'
+                   f'De {n_total_cadastrado} projeto(s) cadastrado(s) ao todo, {n_iniciativas} têm curva prevista '
+                   f'em {ano_dash} (é esse recorte que conta aqui) — os outros {n_total_cadastrado-n_iniciativas} '
+                   f'pertencem a outros anos.</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="margin-bottom:16px;"></div>', unsafe_allow_html=True)
 
     render_carry_over(ano_dash, unidade_filtro)
 
@@ -518,66 +526,57 @@ if pagina == "🏠 Dashboard Global":
     </tr></thead><tbody>{rows_html}</tbody></table>""")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Saúde do portfólio — status geral + ranking de atraso por unidade
+    # Saúde do portfólio — heatmap unidade x status
     st.markdown('<div class="sc">', unsafe_allow_html=True)
-    st.markdown(f'<span class="st">Saúde do Portfólio — {titulo_escopo}</span>', unsafe_allow_html=True)
-    st.caption("Quantos projetos estão realmente em dia agora — e, se atrasado, de quem é.")
+    st.markdown(f'<span class="st">Saúde do Portfólio — {titulo_escopo}, {ano_dash}</span>', unsafe_allow_html=True)
+    st.caption("Quantos projetos estão em cada situação, unidade a unidade — quanto mais escuro, mais projetos "
+              "naquela casa. Mesmo recorte da faixa lá em cima (só entra quem tem curva prevista neste ano).")
 
-    proj_saude = [p for p in todos_proj if not unidade_filtro or p["unidade_nome"]==unidade_filtro]
-    n_concluido = sum(1 for p in proj_saude if "Concluído" in str(p.get("status","")))
-    n_atrasado  = sum(1 for p in proj_saude if linha_atrasada(p))
-    n_no_prazo  = len(proj_saude) - n_concluido - n_atrasado
+    proj_saude = [p for p in todos_proj
+                  if (not unidade_filtro or p["unidade_nome"]==unidade_filtro)
+                  and _toca_ano(p, ano_dash)]
 
     if not proj_saude:
-        st.caption("Nenhum projeto cadastrado ainda.")
+        st.caption(f"Nenhum projeto com curva prevista em {ano_dash} nesse filtro.")
     else:
-        col_donut, col_rank = st.columns([1,1])
-        with col_donut:
-            fig_saude = go.Figure(go.Pie(
-                labels=["Concluído","No prazo","Atrasado"],
-                values=[n_concluido, n_no_prazo, n_atrasado],
-                hole=0.68, sort=False,
-                marker=dict(colors=[GREEN, BLUE, RED], line=dict(color="white", width=2)),
-                textinfo="none"))
-            total_saude = len(proj_saude)
-            fig_saude.add_annotation(text=f"<b>{total_saude}</b><br><span style='font-size:11px;'>projetos</span>",
-                                     showarrow=False, font=dict(size=20, color=NAVY))
-            fig_saude.update_layout(height=210, margin=dict(l=10,r=10,t=10,b=10),
-                                    showlegend=False, paper_bgcolor="white")
-            st.plotly_chart(fig_saude, use_container_width=True, config={"displayModeBar":False})
-            pct = lambda n: (n/total_saude*100) if total_saude else 0
-            st.markdown(f"""<div style="display:flex;justify-content:center;gap:14px;font-size:11px;color:{SILVER};margin-top:-8px;">
-              <span>🟢 Concluído {pct(n_concluido):.0f}%</span>
-              <span>🔵 No prazo {pct(n_no_prazo):.0f}%</span>
-              <span>🔴 Atrasado {pct(n_atrasado):.0f}%</span>
-            </div>""", unsafe_allow_html=True)
-        with col_rank:
-            if unidade_filtro:
-                st.markdown(f"""<div style="height:100%;display:flex;flex-direction:column;justify-content:center;
-                     align-items:center;color:{SILVER};font-size:12px;padding:20px 0;">
-                     Selecione "Visão Geral (Grupo)" lá em cima pra ver o ranking entre unidades.</div>""",
-                     unsafe_allow_html=True)
+        unidades_hm = [unidade_filtro] if unidade_filtro else \
+                      [u["nome"] for u in unidades if any(p["unidade_nome"]==u["nome"] for p in proj_saude)]
+        colunas_hm = ["Não iniciado","Em execução","Atrasado","Concluído"]
+        matriz = {u: {c:0 for c in colunas_hm} for u in unidades_hm}
+        for p in proj_saude:
+            u = p["unidade_nome"]
+            if u not in matriz: continue
+            if "Concluído" in str(p.get("status","")):
+                matriz[u]["Concluído"] += 1
+            elif linha_atrasada(p):
+                matriz[u]["Atrasado"] += 1
+            elif "Execução" in str(p.get("status","")):
+                matriz[u]["Em execução"] += 1
             else:
-                st.markdown(f'<p style="font-size:12px;color:{SILVER};margin-bottom:10px;">Unidades com mais projetos atrasados</p>',
-                           unsafe_allow_html=True)
-                contagem = {}
-                for p in proj_saude:
-                    if linha_atrasada(p):
-                        contagem[p["unidade_nome"]] = contagem.get(p["unidade_nome"], 0) + 1
-                ranking = sorted(contagem.items(), key=lambda x: -x[1])[:6]
-                if not ranking:
-                    st.success("✅ Nenhum projeto atrasado no momento.")
-                else:
-                    maior = ranking[0][1]
-                    for nome_u, qtd in ranking:
-                        largura = qtd/maior*100
-                        st.markdown(f"""<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                          <span style="width:100px;font-size:12px;flex-shrink:0;">{nome_u}</span>
-                          <div style="flex:1;height:10px;background:#F4F6FB;border-radius:3px;overflow:hidden;">
-                            <div style="height:100%;width:{largura:.0f}%;background:{RED};border-radius:3px;"></div>
-                          </div>
-                          <span style="width:18px;font-size:12px;color:{SILVER};text-align:right;">{qtd}</span>
-                        </div>""", unsafe_allow_html=True)
+                matriz[u]["Não iniciado"] += 1
+
+        RAMPA_AZUL = ["#E6F1FB","#B5D4F4","#85B7EB","#378ADD"]
+        RAMPA_VERMELHA = ["#FCEBEB","#F7C1C1","#F09595","#E24B4A"]
+        TEXTO_AZUL, TEXTO_VERMELHO = "#042C53", "#4A1B0C"
+        maximos = {c: max((matriz[u][c] for u in unidades_hm), default=0) for c in colunas_hm}
+
+        def _celula(valor, col):
+            maximo = maximos[col] or 1
+            t = valor / maximo
+            ramp = RAMPA_VERMELHA if col == "Atrasado" else RAMPA_AZUL
+            texto = TEXTO_VERMELHO if col == "Atrasado" else TEXTO_AZUL
+            idx = 0 if t <= 0 else (1 if t < 0.5 else (2 if t < 0.75 else 3))
+            return f'<div style="background:{ramp[idx]};color:{texto};border-radius:8px;padding:10px 0;text-align:center;font-weight:600;">{valor}</div>'
+
+        header_html = "".join(f'<div style="text-align:center;color:{SILVER};font-size:11px;padding:4px 0;">{c}</div>' for c in colunas_hm)
+        linhas_html = ""
+        for u in unidades_hm:
+            linhas_html += f'<div style="display:flex;align-items:center;color:{NAVY};font-size:12px;font-weight:600;">{u}</div>'
+            linhas_html += "".join(_celula(matriz[u][c], c) for c in colunas_hm)
+
+        hc(f"""<div style="display:grid;grid-template-columns:130px repeat(4,1fr);gap:6px;">
+          <div></div>{header_html}{linhas_html}
+        </div>""")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # Lista global de projetos
