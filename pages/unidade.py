@@ -445,10 +445,13 @@ def render(user, **colors):
 </div>""")
 
     # ── Saúde do Portfólio da unidade ────────────────────────────────────────
+    # inclui Campeão aqui (mesmo critério do Dashboard) — só a lista de
+    # cartões principal esconde os formados, a "saúde" conta todo mundo.
     st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown(f'<span class="st">Saúde do Portfólio — {sel}</span>', unsafe_allow_html=True)
-    if projetos_uni:
-        hc(build_heatmap_saude(projetos_uni, [sel], NAVY, SILVER, mostrar_label=False))
+    projetos_saude_uni = listar_projetos(sel, incluir_campeao=True)
+    if projetos_saude_uni:
+        hc(build_heatmap_saude(projetos_saude_uni, [sel], NAVY, SILVER, mostrar_label=False))
     else:
         st.caption("Nenhum projeto cadastrado ainda.")
     st.markdown('</div>', unsafe_allow_html=True)
