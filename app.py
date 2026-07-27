@@ -340,6 +340,61 @@ def render_pilar_table(pilares, titulo_real="Até o Momento"):
     </tr></thead><tbody>{rows}</tbody></table>""")
 
 # ── Dashboard Global ──────────────────────────────────────────────────────────
+def build_heatmap_saude(proj_saude, unidades_hm, NAVY, SILVER, mostrar_total=False):
+    """Grade Unidade x Status (Não iniciado / Em execução / Atrasado /
+    Concluído) com números em fundo colorido tipo pílula — quanto mais
+    projetos naquela casa, mais escura a cor. Concluído usa escala verde,
+    Atrasado usa vermelha, os demais azul. mostrar_total acrescenta uma
+    coluna com a soma da linha (só faz sentido comparando várias unidades)."""
+    colunas_hm = ["Não iniciado","Em execução","Atrasado","Concluído"]
+    matriz = {u: {c:0 for c in colunas_hm} for u in unidades_hm}
+    for p in proj_saude:
+        u = p["unidade_nome"]
+        if u not in matriz: continue
+        if "Concluído" in str(p.get("status","")):
+            matriz[u]["Concluído"] += 1
+        elif linha_atrasada(p):
+            matriz[u]["Atrasado"] += 1
+        elif "Execução" in str(p.get("status","")):
+            matriz[u]["Em execução"] += 1
+        else:
+            matriz[u]["Não iniciado"] += 1
+
+    RAMPA_AZUL   = ["#E6F1FB","#B5D4F4","#85B7EB","#378ADD"]
+    RAMPA_VERDE  = ["#EAF3DE","#C0DD97","#97C459","#639922"]
+    RAMPA_VERM   = ["#FCEBEB","#F7C1C1","#F09595","#E24B4A"]
+    TEXTO_AZUL, TEXTO_VERDE, TEXTO_VERM = "#042C53", "#173404", "#4A1B0C"
+    maximos = {c: max((matriz[u][c] for u in unidades_hm), default=0) for c in colunas_hm}
+    maximo_total = max((sum(matriz[u].values()) for u in unidades_hm), default=0)
+
+    def _celula(valor, col):
+        maximo = maximos[col] or 1
+        t = valor / maximo
+        if col == "Atrasado": ramp, texto = RAMPA_VERM, TEXTO_VERM
+        elif col == "Concluído": ramp, texto = RAMPA_VERDE, TEXTO_VERDE
+        else: ramp, texto = RAMPA_AZUL, TEXTO_AZUL
+        idx = 0 if t <= 0 else (1 if t < 0.5 else (2 if t < 0.75 else 3))
+        return f'<div style="background:{ramp[idx]};color:{texto};border-radius:8px;padding:10px 0;text-align:center;font-weight:600;">{valor}</div>'
+
+    colunas_grid = colunas_hm + (["Total"] if mostrar_total else [])
+    n_cols = len(colunas_grid)
+    header_html = "".join(f'<div style="text-align:center;color:{SILVER};font-size:11px;padding:4px 0;">{c}</div>' for c in colunas_grid)
+    linhas_html = ""
+    for u in unidades_hm:
+        linhas_html += f'<div style="display:flex;align-items:center;color:{NAVY};font-size:12px;font-weight:600;">{u}</div>'
+        linhas_html += "".join(_celula(matriz[u][c], c) for c in colunas_hm)
+        if mostrar_total:
+            total_u = sum(matriz[u].values())
+            t = total_u / (maximo_total or 1)
+            idx = 0 if t <= 0 else (1 if t < 0.5 else (2 if t < 0.75 else 3))
+            ramp_cinza = ["#F1EFE8","#D3D1C7","#B4B2A9","#888780"]
+            texto_cinza = "#2C2C2A"
+            linhas_html += f'<div style="background:{ramp_cinza[idx]};color:{texto_cinza};border-radius:8px;padding:10px 0;text-align:center;font-weight:700;">{total_u}</div>'
+
+    return f"""<div style="display:grid;grid-template-columns:130px repeat({n_cols},1fr);gap:6px;">
+      <div></div>{header_html}{linhas_html}
+    </div>"""
+
 if pagina == "🏠 Dashboard Global":
     init_db()
     unidades   = listar_unidades()
@@ -530,42 +585,7 @@ if pagina == "🏠 Dashboard Global":
     else:
         unidades_hm = [unidade_filtro] if unidade_filtro else \
                       [u["nome"] for u in unidades if any(p["unidade_nome"]==u["nome"] for p in proj_saude)]
-        colunas_hm = ["Não iniciado","Em execução","Atrasado","Concluído"]
-        matriz = {u: {c:0 for c in colunas_hm} for u in unidades_hm}
-        for p in proj_saude:
-            u = p["unidade_nome"]
-            if u not in matriz: continue
-            if "Concluído" in str(p.get("status","")):
-                matriz[u]["Concluído"] += 1
-            elif linha_atrasada(p):
-                matriz[u]["Atrasado"] += 1
-            elif "Execução" in str(p.get("status","")):
-                matriz[u]["Em execução"] += 1
-            else:
-                matriz[u]["Não iniciado"] += 1
-
-        RAMPA_AZUL = ["#E6F1FB","#B5D4F4","#85B7EB","#378ADD"]
-        RAMPA_VERMELHA = ["#FCEBEB","#F7C1C1","#F09595","#E24B4A"]
-        TEXTO_AZUL, TEXTO_VERMELHO = "#042C53", "#4A1B0C"
-        maximos = {c: max((matriz[u][c] for u in unidades_hm), default=0) for c in colunas_hm}
-
-        def _celula(valor, col):
-            maximo = maximos[col] or 1
-            t = valor / maximo
-            ramp = RAMPA_VERMELHA if col == "Atrasado" else RAMPA_AZUL
-            texto = TEXTO_VERMELHO if col == "Atrasado" else TEXTO_AZUL
-            idx = 0 if t <= 0 else (1 if t < 0.5 else (2 if t < 0.75 else 3))
-            return f'<div style="background:{ramp[idx]};color:{texto};border-radius:8px;padding:10px 0;text-align:center;font-weight:600;">{valor}</div>'
-
-        header_html = "".join(f'<div style="text-align:center;color:{SILVER};font-size:11px;padding:4px 0;">{c}</div>' for c in colunas_hm)
-        linhas_html = ""
-        for u in unidades_hm:
-            linhas_html += f'<div style="display:flex;align-items:center;color:{NAVY};font-size:12px;font-weight:600;">{u}</div>'
-            linhas_html += "".join(_celula(matriz[u][c], c) for c in colunas_hm)
-
-        hc(f"""<div style="display:grid;grid-template-columns:130px repeat(4,1fr);gap:6px;">
-          <div></div>{header_html}{linhas_html}
-        </div>""")
+        hc(build_heatmap_saude(proj_saude, unidades_hm, NAVY, SILVER, mostrar_total=True))
     st.markdown('</div>', unsafe_allow_html=True)
 
     # Lista global de projetos
