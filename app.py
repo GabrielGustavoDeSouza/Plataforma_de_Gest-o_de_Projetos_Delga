@@ -419,23 +419,13 @@ if pagina == "🏠 Dashboard Global":
     with c_nav:
         ano_dash = year_nav("dash_ano")
 
-    n_iniciativas = sum(1 for p in todos_proj
-                         if (not unidade_filtro or p["unidade_nome"]==unidade_filtro)
-                         and _toca_ano(p, ano_dash))
-    n_total_cadastrado = sum(1 for p in todos_proj if not unidade_filtro or p["unidade_nome"]==unidade_filtro)
+    n_iniciativas = sum(1 for p in todos_proj if not unidade_filtro or p["unidade_nome"]==unidade_filtro)
     quem = f"a unidade **{unidade_filtro}**" if unidade_filtro else "o **Grupo Delga**"
     st.markdown(f"""<div style="background:linear-gradient(135deg,{NAVY} 0%,#171B4C 100%);
-         border-radius:10px;padding:14px 20px;margin-bottom:4px;">
+         border-radius:10px;padding:14px 20px;margin-bottom:16px;">
          <span style="color:white;font-size:15px;">📌 Em <b>{ano_dash}</b>, {quem} tem
          <b style="color:{AMBER};font-size:17px;">{n_iniciativas}</b> iniciativa{'s' if n_iniciativas != 1 else ''}
          mapeada{'s' if n_iniciativas != 1 else ''}.</span></div>""", unsafe_allow_html=True)
-    if n_total_cadastrado != n_iniciativas:
-        st.markdown(f'<div style="font-size:11px;color:{SILVER};margin-bottom:16px;">'
-                   f'De {n_total_cadastrado} projeto(s) cadastrado(s) ao todo, {n_iniciativas} têm curva prevista '
-                   f'em {ano_dash} (é esse recorte que conta aqui) — os outros {n_total_cadastrado-n_iniciativas} '
-                   f'pertencem a outros anos.</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div style="margin-bottom:16px;"></div>', unsafe_allow_html=True)
 
     render_carry_over(ano_dash, unidade_filtro)
 
@@ -570,18 +560,18 @@ if pagina == "🏠 Dashboard Global":
     </tr></thead><tbody>{rows_html}</tbody></table>""")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Saúde do portfólio — heatmap unidade x status
+    # Saúde do portfólio — heatmap unidade x status (mesmo total de Minha
+    # Unidade: todos os projetos ativos, sem filtro de ano — status não
+    # depende de qual ano financeiro está selecionado)
     st.markdown('<div class="sc">', unsafe_allow_html=True)
-    st.markdown(f'<span class="st">Saúde do Portfólio — {titulo_escopo}, {ano_dash}</span>', unsafe_allow_html=True)
+    st.markdown(f'<span class="st">Saúde do Portfólio — {titulo_escopo}</span>', unsafe_allow_html=True)
     st.caption("Quantos projetos estão em cada situação, unidade a unidade — quanto mais escuro, mais projetos "
-              "naquela casa. Mesmo recorte da faixa lá em cima (só entra quem tem curva prevista neste ano).")
+              "naquela casa. Mesmo total que aparece em Minha Unidade (todos os projetos ativos, sem filtro de ano).")
 
-    proj_saude = [p for p in todos_proj
-                  if (not unidade_filtro or p["unidade_nome"]==unidade_filtro)
-                  and _toca_ano(p, ano_dash)]
+    proj_saude = [p for p in todos_proj if not unidade_filtro or p["unidade_nome"]==unidade_filtro]
 
     if not proj_saude:
-        st.caption(f"Nenhum projeto com curva prevista em {ano_dash} nesse filtro.")
+        st.caption("Nenhum projeto cadastrado ainda nesse filtro.")
     else:
         unidades_hm = [unidade_filtro] if unidade_filtro else \
                       [u["nome"] for u in unidades if any(p["unidade_nome"]==u["nome"] for p in proj_saude)]
