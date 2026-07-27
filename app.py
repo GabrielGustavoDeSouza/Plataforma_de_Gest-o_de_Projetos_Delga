@@ -375,6 +375,7 @@ if pagina == "🏠 Dashboard Global":
     with c2:
         st.markdown('<div class="sc">', unsafe_allow_html=True)
         st.markdown(f'<span class="st">Atingimento da Meta — {titulo_escopo}</span>', unsafe_allow_html=True)
+        st.caption("Contra a meta anual — o quanto já foi realizado de fato.")
         st.plotly_chart(build_gauge(funil["pct_meta"]), use_container_width=True, config={"displayModeBar":False})
         cg1, cg2 = st.columns(2)
         with cg1:
@@ -463,6 +464,7 @@ if pagina == "🏠 Dashboard Global":
     # Tabela performance por unidade
     st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown('<span class="st">Performance por Unidade</span>', unsafe_allow_html=True)
+    st.caption("Cada unidade frente à própria meta — onde o resultado está mais forte.")
     rows_html=""
     unidades_tab = [u for u in unidades if not unidade_filtro or u["nome"]==unidade_filtro]
     for u in unidades_tab:
@@ -499,9 +501,72 @@ if pagina == "🏠 Dashboard Global":
     </tr></thead><tbody>{rows_html}</tbody></table>""")
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # Saúde do portfólio — status geral + ranking de atraso por unidade
+    st.markdown('<div class="sc">', unsafe_allow_html=True)
+    st.markdown(f'<span class="st">Saúde do Portfólio — {titulo_escopo}</span>', unsafe_allow_html=True)
+    st.caption("Quantos projetos estão realmente em dia agora — e, se atrasado, de quem é.")
+
+    proj_saude = [p for p in todos_proj if not unidade_filtro or p["unidade_nome"]==unidade_filtro]
+    n_concluido = sum(1 for p in proj_saude if "Concluído" in str(p.get("status","")))
+    n_atrasado  = sum(1 for p in proj_saude if linha_atrasada(p))
+    n_no_prazo  = len(proj_saude) - n_concluido - n_atrasado
+
+    if not proj_saude:
+        st.caption("Nenhum projeto cadastrado ainda.")
+    else:
+        col_donut, col_rank = st.columns([1,1])
+        with col_donut:
+            fig_saude = go.Figure(go.Pie(
+                labels=["Concluído","No prazo","Atrasado"],
+                values=[n_concluido, n_no_prazo, n_atrasado],
+                hole=0.68, sort=False,
+                marker=dict(colors=[GREEN, BLUE, RED], line=dict(color="white", width=2)),
+                textinfo="none"))
+            total_saude = len(proj_saude)
+            fig_saude.add_annotation(text=f"<b>{total_saude}</b><br><span style='font-size:11px;'>projetos</span>",
+                                     showarrow=False, font=dict(size=20, color=NAVY))
+            fig_saude.update_layout(height=210, margin=dict(l=10,r=10,t=10,b=10),
+                                    showlegend=False, paper_bgcolor="white")
+            st.plotly_chart(fig_saude, use_container_width=True, config={"displayModeBar":False})
+            pct = lambda n: (n/total_saude*100) if total_saude else 0
+            st.markdown(f"""<div style="display:flex;justify-content:center;gap:14px;font-size:11px;color:{SILVER};margin-top:-8px;">
+              <span>🟢 Concluído {pct(n_concluido):.0f}%</span>
+              <span>🔵 No prazo {pct(n_no_prazo):.0f}%</span>
+              <span>🔴 Atrasado {pct(n_atrasado):.0f}%</span>
+            </div>""", unsafe_allow_html=True)
+        with col_rank:
+            if unidade_filtro:
+                st.markdown(f"""<div style="height:100%;display:flex;flex-direction:column;justify-content:center;
+                     align-items:center;color:{SILVER};font-size:12px;padding:20px 0;">
+                     Selecione "Visão Geral (Grupo)" lá em cima pra ver o ranking entre unidades.</div>""",
+                     unsafe_allow_html=True)
+            else:
+                st.markdown(f'<p style="font-size:12px;color:{SILVER};margin-bottom:10px;">Unidades com mais projetos atrasados</p>',
+                           unsafe_allow_html=True)
+                contagem = {}
+                for p in proj_saude:
+                    if linha_atrasada(p):
+                        contagem[p["unidade_nome"]] = contagem.get(p["unidade_nome"], 0) + 1
+                ranking = sorted(contagem.items(), key=lambda x: -x[1])[:6]
+                if not ranking:
+                    st.success("✅ Nenhum projeto atrasado no momento.")
+                else:
+                    maior = ranking[0][1]
+                    for nome_u, qtd in ranking:
+                        largura = qtd/maior*100
+                        st.markdown(f"""<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                          <span style="width:100px;font-size:12px;flex-shrink:0;">{nome_u}</span>
+                          <div style="flex:1;height:10px;background:#F4F6FB;border-radius:3px;overflow:hidden;">
+                            <div style="height:100%;width:{largura:.0f}%;background:{RED};border-radius:3px;"></div>
+                          </div>
+                          <span style="width:18px;font-size:12px;color:{SILVER};text-align:right;">{qtd}</span>
+                        </div>""", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
     # Lista global de projetos
     st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown(f'<span class="st">Todos os Projetos — {titulo_escopo}, {ano_dash}</span>', unsafe_allow_html=True)
+    st.caption("O detalhe, projeto a projeto.")
 
     if unidade_filtro:
         # Unidade já veio do seletor lá em cima — não duplica o filtro aqui
