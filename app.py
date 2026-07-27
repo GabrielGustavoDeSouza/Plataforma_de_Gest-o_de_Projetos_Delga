@@ -464,17 +464,6 @@ if pagina == "🏠 Dashboard Global":
             st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sc">', unsafe_allow_html=True)
-    st.markdown(f'<span class="st">Distribuição por Tipo de Iniciativa — {titulo_escopo}</span>', unsafe_allow_html=True)
-    series_sel = st.multiselect("Séries:", ["Previsto","Validado","Real"],
-                                 default=["Previsto","Validado"], key="dist_series")
-    dist = distribuicao_por_tipo(ano_dash, unidade_filtro)
-    if dist and series_sel:
-        st.plotly_chart(build_distribuicao(dist, series_sel), use_container_width=True, config={"displayModeBar":False})
-    else:
-        st.caption("Sem dados suficientes para este ano.")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown(f'<span class="st">Resumo por Pilar — {titulo_escopo}, {ano_dash}</span>', unsafe_allow_html=True)
     pilares = resumo_por_pilar(unidade_filtro, ano_dash)
     if pilares:
