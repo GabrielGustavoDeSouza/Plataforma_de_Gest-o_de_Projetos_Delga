@@ -224,9 +224,11 @@ def render_editor_form(p, user, is_cc, GREEN, AMBER, RED):
         if st.form_submit_button("➕ Link"):
             if tit_lk and url_lk: add_link(p["id"],tit_lk,url_lk); st.success("✅"); st.rerun()
 
-def build_heatmap_saude(proj_saude, unidades_hm, NAVY, SILVER, mostrar_total=False):
+def build_heatmap_saude(proj_saude, unidades_hm, NAVY, SILVER, mostrar_total=False, mostrar_label=True):
     """Grade Unidade x Status — mesma lógica/visual do Dashboard Global.
-    Concluído em escala verde, Atrasado em vermelha, os demais em azul."""
+    Concluído em escala verde, Atrasado em vermelha, os demais em azul.
+    mostrar_label=False esconde a coluna do nome da unidade (útil quando só
+    tem uma linha e o nome já está no título da seção, evitando repetir)."""
     colunas_hm = ["Não iniciado","Em execução","Atrasado","Concluído"]
     matriz = {u: {c:0 for c in colunas_hm} for u in unidades_hm}
     for p in proj_saude:
@@ -255,24 +257,26 @@ def build_heatmap_saude(proj_saude, unidades_hm, NAVY, SILVER, mostrar_total=Fal
         elif col == "Concluído": ramp, texto = RAMPA_VERDE, TEXTO_VERDE
         else: ramp, texto = RAMPA_AZUL, TEXTO_AZUL
         idx = 0 if t <= 0 else (1 if t < 0.5 else (2 if t < 0.75 else 3))
-        return f'<div style="background:{ramp[idx]};color:{texto};border-radius:8px;padding:10px 0;text-align:center;font-weight:600;">{valor}</div>'
+        return f'<div style="background:{ramp[idx]};color:{texto};border-radius:8px;padding:14px 0;text-align:center;font-weight:600;font-size:15px;">{valor}</div>'
 
     colunas_grid = colunas_hm + (["Total"] if mostrar_total else [])
     n_cols = len(colunas_grid)
     header_html = "".join(f'<div style="text-align:center;color:{SILVER};font-size:11px;padding:4px 0;">{c}</div>' for c in colunas_grid)
     linhas_html = ""
     for u in unidades_hm:
-        linhas_html += f'<div style="display:flex;align-items:center;color:{NAVY};font-size:12px;font-weight:600;">{u}</div>'
+        if mostrar_label:
+            linhas_html += f'<div style="display:flex;align-items:center;color:{NAVY};font-size:12px;font-weight:600;">{u}</div>'
         linhas_html += "".join(_celula(matriz[u][c], c) for c in colunas_hm)
         if mostrar_total:
             total_u = sum(matriz[u].values())
             t = total_u / (maximo_total or 1)
             idx = 0 if t <= 0 else (1 if t < 0.5 else (2 if t < 0.75 else 3))
             ramp_cinza = ["#F1EFE8","#D3D1C7","#B4B2A9","#888780"]
-            linhas_html += f'<div style="background:{ramp_cinza[idx]};color:#2C2C2A;border-radius:8px;padding:10px 0;text-align:center;font-weight:700;">{total_u}</div>'
+            linhas_html += f'<div style="background:{ramp_cinza[idx]};color:#2C2C2A;border-radius:8px;padding:14px 0;text-align:center;font-weight:700;font-size:15px;">{total_u}</div>'
 
-    return f"""<div style="display:grid;grid-template-columns:130px repeat({n_cols},1fr);gap:6px;">
-      <div></div>{header_html}{linhas_html}
+    primeira_col = "130px " if mostrar_label else ""
+    return f"""<div style="display:grid;grid-template-columns:{primeira_col}repeat({n_cols},1fr);gap:10px;">
+      {'<div></div>' if mostrar_label else ''}{header_html}{linhas_html}
     </div>"""
 
 def kpi_de_projetos(projs, ano_sel):
@@ -443,9 +447,8 @@ def render(user, **colors):
     # ── Saúde do Portfólio da unidade ────────────────────────────────────────
     st.markdown('<div class="sc">', unsafe_allow_html=True)
     st.markdown(f'<span class="st">Saúde do Portfólio — {sel}</span>', unsafe_allow_html=True)
-    st.caption("Quantos projetos estão em cada situação — quanto mais escuro, mais projetos naquela casa.")
     if projetos_uni:
-        hc(build_heatmap_saude(projetos_uni, [sel], NAVY, SILVER))
+        hc(build_heatmap_saude(projetos_uni, [sel], NAVY, SILVER, mostrar_label=False))
     else:
         st.caption("Nenhum projeto cadastrado ainda.")
     st.markdown('</div>', unsafe_allow_html=True)
