@@ -279,15 +279,19 @@ def build_heatmap_saude(proj_saude, unidades_hm, NAVY, SILVER, mostrar_total=Fal
       {'<div></div>' if mostrar_label else ''}{header_html}{linhas_html}
     </div>"""
 
-def kpi_de_projetos(projs, ano_sel):
+def kpi_de_projetos(projs, ano_sel, modo="ano"):
     """Recalcula os bignumbers (Previsto/Validado/Real/Extra DRE) restritos a
     um subconjunto de projetos — usado quando o filtro 'Projetos' está ativo,
-    pra tudo (cartões, gráfico) refletir só o que foi selecionado."""
+    pra tudo (cartões, gráfico) refletir só o que foi selecionado.
+    modo='ano' soma o ano inteiro; modo='atual' só até hoje (mesma regra de
+    kpis_unidade, pra bater sempre que o filtro estiver vazio ou não)."""
     hoje = date.today()
     def _ate_hoje(y, m):
         if y < hoje.year: return True
         if y > hoje.year: return False
         return m <= hoje.month
+    def _entra(y, m):
+        return True if modo == "ano" else _ate_hoje(y, m)
 
     prev_uni_mes=[0.0]*12; prev_cust_mes=[0.0]*12; real_mes=[0.0]*12
     total_prev=total_validado=total_extra=0.0
@@ -296,17 +300,17 @@ def kpi_de_projetos(projs, ano_sel):
         extra = is_extra_dre(p["tipo"])
         cu = get_curva_unidade(p["id"]); cc = get_curva_custos(p["id"])
         if extra:
-            # Só o previsto do que já "aconteceu" até hoje — não o ano cheio.
-            extra_ate_hoje = sum(v for (y,m),v in cu.items() if y==ano_sel and _ate_hoje(y,m))
-            total_extra += extra_ate_hoje
-            total_prev  += extra_ate_hoje
+            extra_soma = sum(v for (y,m),v in cu.items() if y==ano_sel and _entra(y,m))
+            total_extra += extra_soma
+            total_prev  += extra_soma
         else:
             for mes in range(1,13):
                 vu=cu.get((ano_sel,mes),0); vc=cc.get((ano_sel,mes),0)
                 prev_uni_mes[mes-1]+=vu; prev_cust_mes[mes-1]+=vc
-                total_prev += vu
+                if _entra(ano_sel, mes):
+                    total_prev += vu
             cs = get_curva_saving(p["id"])
-            total_validado += sum(v for (y,m),v in cs.items() if y==ano_sel)
+            total_validado += sum(v for (y,m),v in cs.items() if y==ano_sel and _entra(y,m))
             if p.get("validador_ok") == "OK":
                 n_validados += 1
         if not extra:
@@ -406,10 +410,23 @@ def render(user, **colors):
     proj_sel = st.multiselect("Filtrar por projeto (vazio = unidade inteira):", nomes_proj,
                               key=f"gr_projs_{sel}_{assinatura}", placeholder="Todos os projetos")
 
-    kpi_unidade_full = kpis_unidade(sel, ano_sel)
+    modo_kpi_opcoes = [("ano", "📅 Ano Inteiro"), ("atual", "⏱️ Até o Momento")]
+    if "kpi_modo" not in st.session_state:
+        st.session_state["kpi_modo"] = "ano"
+    cm1, cm2, cm3 = st.columns([1,1,4])
+    for i, (chave_m, label_m) in enumerate(modo_kpi_opcoes):
+        with (cm1 if i==0 else cm2):
+            ativo_m = st.session_state["kpi_modo"] == chave_m
+            if st.button(label_m, key=f"kpi_modo_{chave_m}", use_container_width=True,
+                         type="primary" if ativo_m else "secondary"):
+                st.session_state["kpi_modo"] = chave_m
+                st.rerun()
+    modo_kpi = st.session_state["kpi_modo"]
+
+    kpi_unidade_full = kpis_unidade(sel, ano_sel, modo_kpi)
     meta_raw = kpi_unidade_full["meta"] or 0
     meta = meta_raw or 1
-    kpi  = kpi_de_projetos([proj_map[np] for np in proj_sel], ano_sel) if proj_sel else kpi_unidade_full
+    kpi  = kpi_de_projetos([proj_map[np] for np in proj_sel], ano_sel, modo_kpi) if proj_sel else kpi_unidade_full
     pct  = kpi["real"]/meta*100 if meta_raw>0 else 0
     pct_c= GREEN if pct>=60 else (AMBER if pct>=30 else RED)
 
@@ -417,6 +434,7 @@ def render(user, **colors):
         st.caption(f"🔎 Mostrando {len(proj_sel)} projeto(s) selecionado(s) — cartões, gráfico e "
                   f"lista abaixo refletem só esse filtro. Meta permanece a da unidade inteira.")
 
+    sufixo_modo = " · até hoje" if modo_kpi == "atual" else " · ano inteiro"
     # ── KPI Cards ─────────────────────────────────────────────────────────────
     hc(f"""
 <div class="kpi-grid">
@@ -427,12 +445,12 @@ def render(user, **colors):
   <div class="kpi-card amber">
     <div class="kpi-l">Previsto (Unidade)</div>
     <div class="kpi-v">{fmt_card(kpi['previsto'])}</div>
-    <div class="kpi-d">{kpi['n_projetos']} projetos{' selecionado(s)' if proj_sel else ' DRE'}</div>
+    <div class="kpi-d">{kpi['n_projetos']} projetos{' selecionado(s)' if proj_sel else ' DRE'}{sufixo_modo}</div>
   </div>
   <div class="kpi-card" style="border-left-color:{TEAL};">
     <div class="kpi-l">Validado (Custos)</div>
     <div class="kpi-v" style="color:{TEAL};">{fmt_card(kpi['validado'])}</div>
-    <div class="kpi-d">{kpi.get('n_validados',0)} projeto(s) aprovado(s)</div>
+    <div class="kpi-d">{kpi.get('n_validados',0)} projeto(s) aprovado(s){sufixo_modo}</div>
   </div>
   <div class="kpi-card" style="border-left-color:{GREEN};background:linear-gradient(135deg,#F0FBF4 0%,white 60%);">
     <div class="kpi-l">Retorno Real {ano_sel}</div>
@@ -446,7 +464,7 @@ def render(user, **colors):
   <div class="kpi-card" style="border-left-color:#9B59B6;">
     <div class="kpi-l">Extra DRE</div>
     <div class="kpi-v" style="color:#9B59B6;">{fmt_card(kpi['extra_dre'])}</div>
-    <div class="kpi-d">Previsto até o momento</div>
+    <div class="kpi-d">Previsto{sufixo_modo}</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-l">Iniciativas</div>
