@@ -54,6 +54,10 @@ def login_page():
     [data-testid="stForm"] [data-testid="stTextInput"] label{{
       color:rgba(255,255,255,.92)!important;font-size:11px!important;
       font-weight:600!important;text-transform:uppercase;letter-spacing:.6px;}}
+    [data-testid="stForm"] [data-testid="stTextInput"] label p,
+    [data-testid="stForm"] [data-testid="stTextInput"] label span,
+    [data-testid="stForm"] [data-testid="stTextInput"] label [data-testid="stMarkdownContainer"]{{
+      color:rgba(255,255,255,.92)!important;}}
     [data-testid="stForm"] [data-testid="stTextInput"] input{{
       background:rgba(255,255,255,.07)!important;border:1px solid rgba(255,255,255,.16)!important;
       border-radius:9px!important;color:white!important;padding:11px 14px!important;
