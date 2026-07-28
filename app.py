@@ -274,12 +274,12 @@ def build_funnel(dados):
         texttemplate="<b>%{value:,.0f}</b><br>%{percentInitial}",
         textfont=dict(color="white", size=13, family="Inter"),
         marker=dict(color=cores, line=dict(color="white", width=2)),
-        connector=dict(line=dict(color="#D7DDE8", width=1.4, dash="dot")),
+        connector=dict(line=dict(color=BORDER, width=1.4, dash="dot")),
         opacity=0.96))
     fig.update_layout(
         separators=",.", funnelgap=0.045,
         margin=dict(l=10,r=10,t=14,b=10), height=340,
-        paper_bgcolor="white", plot_bgcolor="white",
+        paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
         font=dict(family="Inter", size=13, color=NAVY))
     return fig
 
@@ -290,12 +290,12 @@ def build_gauge(pct):
                 "valueformat":".1f"},
         gauge={"axis":{"range":[0,100],"tickcolor":SILVER,"tickfont":{"size":9}},
                "bar":{"color":BLUE,"thickness":0.28},
-               "bgcolor":"white","borderwidth":0,
-               "steps":[{"range":[0,40],"color":"#EAF0FB"},
-                        {"range":[40,70],"color":"#FFF6E5"},
-                        {"range":[70,100],"color":"#E6F4EC"}]}))
+               "bgcolor":SURFACE,"borderwidth":0,
+               "steps":[{"range":[0,40],"color":BLUE+"1F"},
+                        {"range":[40,70],"color":AMBER+"1F"},
+                        {"range":[70,100],"color":GREEN+"1F"}]}))
     fig.update_layout(margin=dict(l=24,r=24,t=20,b=10), height=320,
-                       paper_bgcolor="white", font=dict(family="Inter"))
+                       paper_bgcolor=SURFACE, font=dict(family="Inter"))
     return fig
 
 def build_donut(dados):
@@ -304,12 +304,12 @@ def build_donut(dados):
     cores   = [cor_unidade(nome, i) for i,nome in enumerate(labels)]
     fig = go.Figure(go.Pie(
         labels=labels, values=valores, hole=0.62, sort=False,
-        marker=dict(colors=cores, line=dict(color="white", width=2)),
+        marker=dict(colors=cores, line=dict(color=SURFACE, width=2)),
         textinfo="none",
         hovertemplate="%{label}: R$ %{value:,.0f} (%{percent})<extra></extra>"))
     fig.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=300,
-                       paper_bgcolor="white", separators=",.",
-                       legend=dict(orientation="v", font=dict(size=11)),
+                       paper_bgcolor=SURFACE, separators=",.",
+                       legend=dict(orientation="v", font=dict(size=11, color=NAVY)),
                        annotations=[dict(text=fmt_card(sum(valores)), x=0.5, y=0.5,
                                           font=dict(size=15, color=NAVY), showarrow=False)])
     return fig
@@ -327,10 +327,12 @@ def build_distribuicao(dist, series_sel):
     fig.update_layout(barmode="group", separators=",.",
                        height=max(280, 46*len(tipos)),
                        margin=dict(l=10,r=10,t=10,b=10),
-                       paper_bgcolor="white", plot_bgcolor="white",
-                       xaxis=dict(tickprefix="R$ ", tickformat=",.0f", showgrid=True, gridcolor="#F0F4F8"),
-                       legend=dict(orientation="h", y=1.08),
-                       font=dict(family="Inter", size=11))
+                       paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
+                       xaxis=dict(tickprefix="R$ ", tickformat=",.0f", showgrid=True, gridcolor=BORDER,
+                                  color=NAVY),
+                       yaxis=dict(color=NAVY),
+                       legend=dict(orientation="h", y=1.08, font=dict(color=NAVY)),
+                       font=dict(family="Inter", size=11, color=NAVY))
     return fig
 
 def render_pilar_table(pilares, titulo_real="Até o Momento"):
@@ -346,7 +348,7 @@ def render_pilar_table(pilares, titulo_real="Até o Momento"):
           <td style="text-align:right;color:{GREEN};font-weight:600;">{fmt_brl(d['real_total'])}</td>
         </tr>"""
         tq+=d['qtd']; tp+=d['previsto']; tv+=d['validado']; tr+=d['real_total']
-    rows += f"""<tr style="background:#F4F6FB;font-weight:700;">
+    rows += f"""<tr style="background:{SURFACE_2};font-weight:700;">
       <td>TOTAL</td><td style="text-align:center;">{tq}</td>
       <td style="text-align:right;">{fmt_brl(tp)}</td>
       <td style="text-align:right;color:{BLUE};">{fmt_brl(tv)}</td>
@@ -467,12 +469,12 @@ if pagina == "🏠 Dashboard Global":
         st.plotly_chart(build_gauge(funil["pct_meta"]), use_container_width=True, config={"displayModeBar":False})
         cg1, cg2 = st.columns(2)
         with cg1:
-            hc(f"""<div style="background:#F4F6FB;border-radius:8px;padding:8px 12px;">
+            hc(f"""<div style="background:{SURFACE_2};border-radius:8px;padding:8px 12px;">
                 <div style="font-size:9px;color:{SILVER};text-transform:uppercase;">Gap para Meta</div>
                 <div style="font-size:15px;font-weight:700;color:{NAVY};">{fmt_brl(max(funil['meta']-funil['real'],0))}</div>
                 </div>""")
         with cg2:
-            hc(f"""<div style="background:#F4F6FB;border-radius:8px;padding:8px 12px;">
+            hc(f"""<div style="background:{SURFACE_2};border-radius:8px;padding:8px 12px;">
                 <div style="font-size:9px;color:{SILVER};text-transform:uppercase;">Validado / Meta</div>
                 <div style="font-size:15px;font-weight:700;color:{NAVY};">{(funil['validado']/funil['meta']*100 if funil['meta']>0 else 0):.1f}%</div>
                 </div>""")
@@ -480,7 +482,7 @@ if pagina == "🏠 Dashboard Global":
 
     # Nota metodológica
     hc(f"""
-<div style="background:#FFFBF0;border-left:3px solid {AMBER};border-radius:0 6px 6px 0;
+<div style="background:{AMBER}1A;border-left:3px solid {AMBER};border-radius:0 6px 6px 0;
      padding:8px 14px;margin-bottom:16px;font-size:10px;color:#555;">
   <b>Metodologia:</b>
   <span style="color:{GREEN};">✓ DRE:</span> BSW · Kaizen · Kaizen GR · Redução de Custo · Você Resolve · Estratégia Comercial — impacto direto e mensurável no DRE. &nbsp;
@@ -550,10 +552,10 @@ if pagina == "🏠 Dashboard Global":
         pct_u = kpi["real"]/meta*100 if kpi["meta"]>0 else 0
         bar_c = GREEN if pct_u>=60 else (AMBER if pct_u>=30 else SILVER)
         bar_w = min(pct_u,100)
-        badge = (f'<span style="background:#E6F4EC;color:{GREEN};font-size:10px;'
+        badge = (f'<span style="background:{GREEN}1A;color:{GREEN};font-size:10px;'
                  f'padding:2px 8px;border-radius:10px;font-weight:600;">DESTAQUE ✓</span>'
                  if pct_u>=30 else
-                 f'<span style="background:#FFF3E0;color:{AMBER};font-size:10px;'
+                 f'<span style="background:{AMBER}1A;color:{AMBER};font-size:10px;'
                  f'padding:2px 8px;border-radius:10px;font-weight:600;">EM EXECUÇÃO</span>')
         rows_html += f"""<tr>
           <td style="font-weight:600;">{u['nome']}</td>
@@ -650,15 +652,15 @@ if pagina == "🏠 Dashboard Global":
             f'🔗 {_html.escape(lk["titulo"])}</a>'
             for lk in links) if links else ""
         prev_val=p["previsto_unidade"]
-        dre_b=(f'<span style="background:#F3E8FF;color:#9B59B6;font-size:9px;'
+        dre_b=(f'<span style="background:#9B59B61A;color:#9B59B6;font-size:9px;'
                f'padding:1px 6px;border-radius:6px;font-weight:600;margin-left:4px;">↷ N/DRE</span>'
                if extra else
-               f'<span style="background:#E6F4EC;color:{GREEN};font-size:9px;'
+               f'<span style="background:{GREEN}1A;color:{GREEN};font-size:9px;'
                f'padding:1px 6px;border-radius:6px;font-weight:600;margin-left:4px;">✓ DRE</span>')
         vok_c=GREEN if p.get("validador_ok")=="OK" else (RED if p.get("validador_ok")=="NOK" else AMBER)
         hc(f"""
-<div style="border-left:4px solid {border_c};background:white;border-radius:0 8px 8px 0;
-     padding:10px 16px;margin-bottom:4px;box-shadow:0 1px 4px rgba(28,43,74,.06);">
+<div style="border-left:4px solid {border_c};background:{SURFACE};border-radius:0 8px 8px 0;
+     padding:10px 16px;margin-bottom:4px;box-shadow:0 1px 4px {SHADOW_1};">
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
     <div style="flex:1;min-width:200px;">
       <div style="font-size:10px;color:{SILVER};">{p['unidade_nome']} · {p['tipo']}{dre_b}</div>
@@ -696,20 +698,20 @@ if pagina == "🏠 Dashboard Global":
 
 elif pagina == "🏭 Minha Unidade":
     from pages.unidade import render
-    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT, SURFACE=SURFACE, SURFACE_2=SURFACE_2, BORDER=BORDER, BG=BG, TEXT=TEXT, TEXT_MUTED=TEXT_MUTED, SHADOW_1=SHADOW_1)
 
 elif pagina == "➕ Novo Projeto":
     from pages.novo_projeto import render
-    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT, SURFACE=SURFACE, SURFACE_2=SURFACE_2, BORDER=BORDER, BG=BG, TEXT=TEXT, TEXT_MUTED=TEXT_MUTED, SHADOW_1=SHADOW_1)
 
 elif pagina == "💰 Controle de Custos":
     from pages.lancamento import render
-    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT, SURFACE=SURFACE, SURFACE_2=SURFACE_2, BORDER=BORDER, BG=BG, TEXT=TEXT, TEXT_MUTED=TEXT_MUTED, SHADOW_1=SHADOW_1)
 
 elif pagina == "👤 Minha Conta":
     from pages.minha_conta import render
-    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, SILVER=SILVER)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, SILVER=SILVER, SURFACE=SURFACE, SURFACE_2=SURFACE_2, BORDER=BORDER, BG=BG, TEXT=TEXT, TEXT_MUTED=TEXT_MUTED, SHADOW_1=SHADOW_1)
 
 elif pagina == "⚙️ Administração":
     from pages.admin import render
-    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT)
+    render(user, NAVY=NAVY, BLUE=BLUE, BLUE2=BLUE2, RED=RED, GREEN=GREEN, AMBER=AMBER, TEAL=TEAL, SILVER=SILVER, LIGHT=LIGHT, SURFACE=SURFACE, SURFACE_2=SURFACE_2, BORDER=BORDER, BG=BG, TEXT=TEXT, TEXT_MUTED=TEXT_MUTED, SHADOW_1=SHADOW_1)
