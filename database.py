@@ -1023,12 +1023,18 @@ def kpis_unidade(unidade_nome, ano):
     meta     = get_meta(unidade_nome, ano)
     hoje     = date.today()
 
+    def _ate_hoje(y, m):
+        if y < hoje.year: return True
+        if y > hoje.year: return False
+        return m <= hoje.month
+
     prev_uni_mes  = {m:0.0 for m in range(1,13)}
     prev_cust_mes = {m:0.0 for m in range(1,13)}
     real_mes      = {m:0.0 for m in range(1,13)}
     total_prev_uni= 0.0
     total_validado= 0.0
     total_extra   = 0.0
+    n_validados   = 0
 
     for p in projetos:
         extra = is_extra_dre(p["tipo"])
@@ -1036,12 +1042,14 @@ def kpis_unidade(unidade_nome, ano):
         curva_cust = get_curva_custos(p["id"])
 
         if extra:
-            # Extra DRE: soma do ano cheio (previsto da curva), e entra também
-            # no Previsto total da unidade — só fica de fora de Validado/Real,
-            # que são exclusivos de projetos DRE.
-            extra_ano = sum(v for (y,m),v in curva_uni.items() if y==ano)
-            total_extra    += extra_ano
-            total_prev_uni += extra_ano
+            # Extra DRE: só o que já "aconteceu" até hoje (do mês do 1º
+            # ganho até o mês atual) — não o valor previsto do ano inteiro,
+            # senão o número fica adiantado em relação ao que já ocorreu de
+            # fato. Também entra no Previsto total da unidade nesse mesmo
+            # recorte; fica de fora de Validado/Real, exclusivos de DRE.
+            extra_ate_hoje = sum(v for (y,m),v in curva_uni.items() if y==ano and _ate_hoje(y,m))
+            total_extra    += extra_ate_hoje
+            total_prev_uni += extra_ate_hoje
         else:
             for mes in range(1,13):
                 vu = curva_uni.get((ano,mes),0)
@@ -1051,6 +1059,8 @@ def kpis_unidade(unidade_nome, ano):
                 total_prev_uni     += vu
             curva_sav = get_curva_saving(p["id"])
             total_validado += sum(v for (y,m),v in curva_sav.items() if y==ano)
+            if p.get("validador_ok") == "OK":
+                n_validados += 1
 
     for l in get_lancamentos(unidade_nome=unidade_nome, ano=ano):
         p_tipo = next((p["tipo"] for p in projetos if p["id"]==l["projeto_id"]),"")
@@ -1061,6 +1071,7 @@ def kpis_unidade(unidade_nome, ano):
 
     return {
         "n_projetos":         len(projetos),
+        "n_validados":        n_validados,
         "previsto":           total_prev_uni,
         "validado":           total_validado,
         "real":               total_real,
