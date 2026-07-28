@@ -283,15 +283,23 @@ def kpi_de_projetos(projs, ano_sel):
     """Recalcula os bignumbers (Previsto/Validado/Real/Extra DRE) restritos a
     um subconjunto de projetos — usado quando o filtro 'Projetos' está ativo,
     pra tudo (cartões, gráfico) refletir só o que foi selecionado."""
+    hoje = date.today()
+    def _ate_hoje(y, m):
+        if y < hoje.year: return True
+        if y > hoje.year: return False
+        return m <= hoje.month
+
     prev_uni_mes=[0.0]*12; prev_cust_mes=[0.0]*12; real_mes=[0.0]*12
     total_prev=total_validado=total_extra=0.0
+    n_validados=0
     for p in projs:
         extra = is_extra_dre(p["tipo"])
         cu = get_curva_unidade(p["id"]); cc = get_curva_custos(p["id"])
         if extra:
-            extra_ano = sum(v for (y,m),v in cu.items() if y==ano_sel)
-            total_extra += extra_ano
-            total_prev  += extra_ano
+            # Só o previsto do que já "aconteceu" até hoje — não o ano cheio.
+            extra_ate_hoje = sum(v for (y,m),v in cu.items() if y==ano_sel and _ate_hoje(y,m))
+            total_extra += extra_ate_hoje
+            total_prev  += extra_ate_hoje
         else:
             for mes in range(1,13):
                 vu=cu.get((ano_sel,mes),0); vc=cc.get((ano_sel,mes),0)
@@ -299,10 +307,13 @@ def kpi_de_projetos(projs, ano_sel):
                 total_prev += vu
             cs = get_curva_saving(p["id"])
             total_validado += sum(v for (y,m),v in cs.items() if y==ano_sel)
+            if p.get("validador_ok") == "OK":
+                n_validados += 1
         if not extra:
             for l in get_lancamentos(proj_id=p["id"], ano=ano_sel):
                 real_mes[l["mes"]-1] += l["valor_real"]
-    return {"n_projetos":len(projs), "previsto":total_prev, "validado":total_validado,
+    return {"n_projetos":len(projs), "n_validados":n_validados,
+            "previsto":total_prev, "validado":total_validado,
             "real":sum(real_mes), "extra_dre":total_extra,
             "prev_mensal_uni":prev_uni_mes, "prev_mensal_custos":prev_cust_mes,
             "real_mensal":real_mes}
@@ -419,8 +430,9 @@ def render(user, **colors):
     <div class="kpi-d">{kpi['n_projetos']} projetos{' selecionado(s)' if proj_sel else ' DRE'}</div>
   </div>
   <div class="kpi-card" style="border-left-color:{TEAL};">
-    <div class="kpi-l">Validado por Custos</div>
+    <div class="kpi-l">Validado (Custos)</div>
     <div class="kpi-v" style="color:{TEAL};">{fmt_card(kpi['validado'])}</div>
+    <div class="kpi-d">{kpi.get('n_validados',0)} projeto(s) aprovado(s)</div>
   </div>
   <div class="kpi-card" style="border-left-color:{GREEN};background:linear-gradient(135deg,#F0FBF4 0%,white 60%);">
     <div class="kpi-l">Retorno Real {ano_sel}</div>
@@ -434,6 +446,7 @@ def render(user, **colors):
   <div class="kpi-card" style="border-left-color:#9B59B6;">
     <div class="kpi-l">Extra DRE</div>
     <div class="kpi-v" style="color:#9B59B6;">{fmt_card(kpi['extra_dre'])}</div>
+    <div class="kpi-d">Previsto até o momento</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-l">Iniciativas</div>
