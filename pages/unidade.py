@@ -425,9 +425,20 @@ def render(user, **colors):
 
     kpi_unidade_full = kpis_unidade(sel, ano_sel, modo_kpi)
     meta_raw = kpi_unidade_full["meta"] or 0
-    meta = meta_raw or 1
     kpi  = kpi_de_projetos([proj_map[np] for np in proj_sel], ano_sel, modo_kpi) if proj_sel else kpi_unidade_full
-    pct  = kpi["real"]/meta*100 if meta_raw>0 else 0
+
+    # Meta "até o momento" — proporcional aos dias já passados do ano.
+    # Ano passado (já acabou todo): conta os 100%. Ano futuro: 0%.
+    hoje = date.today()
+    dias_no_ano = 366 if (ano_sel%4==0 and (ano_sel%100!=0 or ano_sel%400==0)) else 365
+    if ano_sel < hoje.year: dia_do_ano = dias_no_ano
+    elif ano_sel > hoje.year: dia_do_ano = 0
+    else: dia_do_ano = hoje.timetuple().tm_yday
+    meta_prorata = meta_raw * dia_do_ano / dias_no_ano
+
+    meta_exibida = meta_prorata if modo_kpi == "atual" else meta_raw
+    meta = meta_exibida or 1
+    pct  = kpi["real"]/meta*100 if meta_exibida>0 else 0
     pct_c= GREEN if pct>=60 else (AMBER if pct>=30 else RED)
 
     if proj_sel:
@@ -439,8 +450,9 @@ def render(user, **colors):
     hc(f"""
 <div class="kpi-grid">
   <div class="kpi-card">
-    <div class="kpi-l">Meta {ano_sel}</div>
-    <div class="kpi-v">{fmt_card(meta_raw)}</div>
+    <div class="kpi-l">Meta {ano_sel}{' (até hoje)' if modo_kpi=='atual' else ''}</div>
+    <div class="kpi-v">{fmt_card(meta_exibida)}</div>
+    <div class="kpi-d">{f'{dia_do_ano}/{dias_no_ano} dias do ano · meta cheia {fmt_card(meta_raw)}' if modo_kpi=='atual' else ''}</div>
   </div>
   <div class="kpi-card amber">
     <div class="kpi-l">Previsto (Unidade)</div>
@@ -459,7 +471,7 @@ def render(user, **colors):
   <div class="kpi-card" style="border-left-color:{pct_c};">
     <div class="kpi-l">% Atingimento</div>
     <div class="kpi-v" style="color:{pct_c};">{pct:.1f}%</div>
-    <div class="kpi-d">Real / Meta</div>
+    <div class="kpi-d">Real / Meta{' até hoje' if modo_kpi=='atual' else ''}</div>
   </div>
   <div class="kpi-card" style="border-left-color:#9B59B6;">
     <div class="kpi-l">Extra DRE</div>
