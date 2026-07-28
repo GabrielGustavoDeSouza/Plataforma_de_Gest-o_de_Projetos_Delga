@@ -15,6 +15,7 @@ def render(user, **colors):
     NAVY=colors.get("NAVY","#0B0F2B"); GREEN=colors.get("GREEN","#1AA260")
     AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#D93B3B")
     TEAL=colors.get("TEAL","#20C997"); SILVER=colors.get("SILVER","#8A9BB0")
+    SURFACE=colors.get("SURFACE","#FFFFFF")
 
     ano_atual = datetime.now().year
     is_cc = user["perfil"] in ("admin","cost_control")
@@ -64,7 +65,7 @@ def render(user, **colors):
                     for p in fila:
                         links = get_links(p["id"])
                         extra = is_extra_dre(p["tipo"])
-                        dre_b = f'<span style="background:#F3E8FF;color:#9B59B6;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;">↷ N/DRE</span>' if extra else f'<span style="background:#E6F4EC;color:{GREEN};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;">✓ DRE</span>'
+                        dre_b = f'<span style="background:#9B59B61A;color:#9B59B6;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;">↷ N/DRE</span>' if extra else f'<span style="background:{GREEN}1A;color:{GREEN};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;">✓ DRE</span>'
 
                         # Links como botões HTML clicáveis com href real
                         if links:
@@ -82,7 +83,7 @@ def render(user, **colors):
                             links_html = f'<p style="font-size:10px;color:#ccc;margin-top:6px;">Sem links cadastrados</p>'
 
                         hc(f"""
-    <div style="border-left:4px solid {NAVY};background:white;border-radius:0 8px 8px 0;
+    <div style="border-left:4px solid {NAVY};background:{SURFACE};border-radius:0 8px 8px 0;
          padding:14px 18px;margin-bottom:6px;box-shadow:0 1px 4px rgba(28,43,74,.08);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div style="flex:1;">
@@ -209,7 +210,7 @@ def render(user, **colors):
                 st.success(f"✅ Todos os projetos já foram lançados em {MESES_PT[mes_sel-1]}/{ano_sel}.")
             for p, frac, frac_custos in pendentes:
                 hc(f"""
-<div style="padding:8px 12px;background:white;border-radius:6px 6px 0 0;
+<div style="padding:8px 12px;background:{SURFACE};border-radius:6px 6px 0 0;
      border:1px solid #EEF0F3;border-bottom:none;">
   <div style="font-size:11px;font-weight:700;color:{NAVY};">⏳ #{p['id']} — {p['nome'][:55]}</div>
   <div style="font-size:10px;color:{SILVER};">{p['unidade_nome']} · {p['tipo']} · Fração prevista por Unidade: <b style="color:{AMBER};">{fmt_brl(frac)}</b> // Fração prevista por Custo: <b style="color:{AMBER};">{fmt_brl(frac_custos)}</b></div>
