@@ -179,6 +179,13 @@ def render(user, **colors):
                 frac_custos = curva_c.get((ano_sel, mes_sel), 0)
                 proj_mes.append((p, curva[(ano_sel, mes_sel)], frac_custos))
 
+        # Ordena por unidade + nome — a ordem "natural" do banco é por data
+        # de formalização/criação, então projetos como "02..." e "03..." da
+        # mesma unidade podem aparecer longe um do outro na lista, o que já
+        # causou lançamento no card errado por engano. Ordenando pelo nome,
+        # a lista segue a numeração que vocês já usam (01, 02, 03...).
+        proj_mes.sort(key=lambda x: (x[0]["unidade_nome"], x[0]["nome"]))
+
         if not proj_mes:
             st.info(f"Nenhum projeto DRE aprovado com retorno previsto em "
                     f"{MESES_PT[mes_sel-1]}/{ano_sel} nas unidades selecionadas.")
