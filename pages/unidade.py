@@ -36,11 +36,11 @@ def linha_atrasada(p):
     try: return date(int(t[:4]),int(t[5:7]),28) < date.today()
     except: return False
 
-def render_editor_novo(p, user, is_cc, GREEN, AMBER, RED):
+def render_editor_novo(p, user, is_cc, GREEN, AMBER, RED, NAVY="#0B0F2B", SURFACE="#FFFFFF", BORDER="#EEF0F3"):
     """Editor completo pro formato Novo Projeto — abas Fundamentos, A3,
     Estrutura e Gantt, em vez do formulário único do formato antigo."""
     sub_f, sub_a3, sub_e, sub_g = st.tabs(["🧱 Fundamentos", "📋 A3", "🗓️ Estrutura", "📊 Gantt"])
-    colors = {"GREEN": GREEN, "AMBER": AMBER, "RED": RED}
+    colors = {"GREEN": GREEN, "AMBER": AMBER, "RED": RED, "NAVY": NAVY, "SURFACE": SURFACE, "BORDER": BORDER}
 
     with sub_f:
         ativs_atuais = listar_atividades(p["id"])
@@ -91,7 +91,7 @@ def render_editor_novo(p, user, is_cc, GREEN, AMBER, RED):
             else:
                 val_ok=p.get("validador_ok","Pendente"); saving=p.get("saving_validado") or 0; prev_c=p.get("previsto_custos") or 0
                 vok_color=GREEN if val_ok=="OK" else (RED if val_ok=="NOK" else AMBER)
-                hc(f'<div style="background:#F4F6FB;border-radius:8px;padding:10px 14px;font-size:11px;display:flex;gap:24px;"><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Validador</span><br><b style="color:{vok_color};">{val_ok}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Calc. Custos</span><br><b>{fmt_brl(prev_c)}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Saving</span><br><b style="color:#20C997;">{fmt_brl(saving)}</b></div></div>')
+                hc(f'<div style="background:{SURFACE};border-radius:8px;padding:10px 14px;font-size:11px;display:flex;gap:24px;"><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Validador</span><br><b style="color:{vok_color};">{val_ok}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Calc. Custos</span><br><b>{fmt_brl(prev_c)}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Saving</span><br><b style="color:#20C997;">{fmt_brl(saving)}</b></div></div>')
             col_s,col_d=st.columns([4,1])
             with col_s: salvar_e=st.form_submit_button("💾 Salvar",use_container_width=True)
             with col_d: excluir_e=st.form_submit_button("🗑️",use_container_width=True)
@@ -130,14 +130,14 @@ def render_editor_novo(p, user, is_cc, GREEN, AMBER, RED):
     with sub_g:
         _render_gantt(p["id"], colors)
 
-def render_editor_dispatch(p, user, is_cc, GREEN, AMBER, RED):
+def render_editor_dispatch(p, user, is_cc, GREEN, AMBER, RED, NAVY="#0B0F2B", SURFACE="#FFFFFF", BORDER="#EEF0F3", SURFACE_2="#FAFBFC"):
     """Roteia pro editor certo: projetos 'novo' abrem o editor completo
     (Fundamentos/A3/Estrutura/Gantt); projetos 'aplicado' continuam no
     formulário único de sempre."""
     if p.get("origem") == "novo":
-        render_editor_novo(p, user, is_cc, GREEN, AMBER, RED)
+        render_editor_novo(p, user, is_cc, GREEN, AMBER, RED, NAVY, SURFACE, BORDER)
     else:
-        render_editor_form(p, user, is_cc, GREEN, AMBER, RED)
+        render_editor_form(p, user, is_cc, GREEN, AMBER, RED, SURFACE_2)
 
 def toggle_editor_button(p, discreet=False):
     """Botão de editar (lápis) — alterna o formulário aberto/fechado.
@@ -148,7 +148,7 @@ def toggle_editor_button(p, discreet=False):
                  help=f"Editar #{p['id']}" if discreet else None):
         st.session_state[f"edit_open_{p['id']}"] = not st.session_state.get(f"edit_open_{p['id']}", False)
 
-def render_editor_form(p, user, is_cc, GREEN, AMBER, RED):
+def render_editor_form(p, user, is_cc, GREEN, AMBER, RED, SURFACE_2="#FAFBFC"):
     """Formulário completo de edição — chamado quando 'edit_open_<id>' está
     True. Usado tanto no cartão normal quanto na lista de Campeões."""
     links = get_links(p["id"])
@@ -199,7 +199,7 @@ def render_editor_form(p, user, is_cc, GREEN, AMBER, RED):
         else:
             val_ok=p.get("validador_ok","Pendente"); saving=p.get("saving_validado") or 0; prev_c=p.get("previsto_custos") or 0
             vok_color=GREEN if val_ok=="OK" else (RED if val_ok=="NOK" else AMBER)
-            hc(f'<div style="background:#F4F6FB;border-radius:8px;padding:10px 14px;font-size:11px;display:flex;gap:24px;"><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Validador</span><br><b style="color:{vok_color};">{val_ok}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Calc. Custos</span><br><b>{fmt_brl(prev_c)}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Saving</span><br><b style="color:#20C997;">{fmt_brl(saving)}</b></div></div>')
+            hc(f'<div style="background:{SURFACE_2};border-radius:8px;padding:10px 14px;font-size:11px;display:flex;gap:24px;"><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Validador</span><br><b style="color:{vok_color};">{val_ok}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Calc. Custos</span><br><b>{fmt_brl(prev_c)}</b></div><div><span style="color:#8A9BB0;font-size:9px;text-transform:uppercase;">Saving</span><br><b style="color:#20C997;">{fmt_brl(saving)}</b></div></div>')
         col_s,col_d=st.columns([4,1])
         with col_s: salvar_e=st.form_submit_button("💾 Salvar",use_container_width=True)
         with col_d: excluir_e=st.form_submit_button("🗑️",use_container_width=True)
@@ -327,6 +327,8 @@ def render(user, **colors):
     AMBER=colors.get("AMBER","#E8A838"); RED=colors.get("RED","#D93B3B")
     BLUE=colors.get("BLUE","#1B2A9E"); BLUE2=colors.get("BLUE2","#33459E")
     TEAL=colors.get("TEAL","#20C997"); SILVER=colors.get("SILVER","#8A9BB0")
+    SURFACE=colors.get("SURFACE","#FFFFFF"); BORDER=colors.get("BORDER","#EEF0F3")
+    SURFACE_2=colors.get("SURFACE_2","#FAFBFC"); SHADOW_1=colors.get("SHADOW_1","rgba(11,15,43,.06)")
 
     verificar_campeoes()
     unidades = listar_unidades()
@@ -486,7 +488,7 @@ def render(user, **colors):
 
     # Nota metodológica
     hc(f"""
-<div style="background:#FFFBF0;border-left:3px solid {AMBER};border-radius:0 6px 6px 0;
+<div style="background:{AMBER}1A;border-left:3px solid {AMBER};border-radius:0 6px 6px 0;
      padding:8px 14px;margin:8px 0 16px;font-size:10px;color:#555;">
   <b>Metodologia:</b>
   <span style="color:{GREEN};">✓ DRE:</span> BSW · Kaizen · Kaizen GR · Redução de Custo · Você Resolve · Estratégia Comercial — impacto direto e mensurável no DRE. &nbsp;
@@ -512,7 +514,7 @@ def render(user, **colors):
     if pend_valid:
         with st.expander(f"🔔 {len(pend_valid)} projeto(s) aguardando validação de Custos", expanded=False):
             for p in pend_valid:
-                hc(f'<div style="padding:6px 12px;background:#FFF9E6;border-radius:6px;'
+                hc(f'<div style="padding:6px 12px;background:{AMBER}1A;border-radius:6px;'
                    f'margin-bottom:4px;font-size:11px;"><b>#{p["id"]} — {p["nome"]}</b> · '
                    f'Previsto: {fmt_brl(p["previsto_unidade"])}</div>')
 
@@ -617,14 +619,14 @@ def render(user, **colors):
     fig.update_layout(
         separators=",.",  # padrão BR: vírgula decimal, ponto milhar
         barmode="group",bargap=0.2,
-        xaxis=dict(showgrid=True,gridcolor="#F0F4F8"),
-        yaxis=dict(tickprefix="R$ ",tickformat=",.0f",showgrid=True,gridcolor="#F0F4F8"),
-        legend=dict(orientation="h",y=1.05,x=0.5,xanchor="center"),
+        xaxis=dict(showgrid=True,gridcolor=BORDER,color=NAVY),
+        yaxis=dict(tickprefix="R$ ",tickformat=",.0f",showgrid=True,gridcolor=BORDER,color=NAVY),
+        legend=dict(orientation="h",y=1.05,x=0.5,xanchor="center",font=dict(color=NAVY)),
         margin=dict(l=60,r=20,t=40,b=30),height=340,
-        paper_bgcolor="white",plot_bgcolor="white",
+        paper_bgcolor=SURFACE,plot_bgcolor=SURFACE,
         hovermode="x unified",
-        hoverlabel=dict(bgcolor="white",font_size=12,namelength=-1),
-        font=dict(family="Inter"))
+        hoverlabel=dict(bgcolor=SURFACE,font_size=12,namelength=-1),
+        font=dict(family="Inter",color=NAVY))
 
     hc(f'<p style="font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;'
        f'letter-spacing:.7px;border-bottom:2px solid {BLUE};padding-bottom:6px;'
@@ -685,8 +687,8 @@ def render(user, **colors):
         term_str =str(p.get("termino","") or "")[:7]
         txt_c    =f"color:{RED};" if atrasado else f"color:{NAVY};"
         vok_c    =GREEN if p.get("validador_ok")=="OK" else (RED if p.get("validador_ok")=="NOK" else AMBER)
-        dre_b    =f'<span style="background:#F3E8FF;color:#9B59B6;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;margin-left:6px;">↷ N/DRE</span>' if extra else f'<span style="background:#E6F4EC;color:{GREEN};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;margin-left:6px;">✓ DRE</span>'
-        gu_b     =f'<span style="background:#FFF3E0;color:#B8720A;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;margin-left:6px;">🎯 Único</span>' if p.get("ganho_unico") else ""
+        dre_b    =f'<span style="background:#9B59B61A;color:#9B59B6;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;margin-left:6px;">↷ N/DRE</span>' if extra else f'<span style="background:{GREEN}1A;color:{GREEN};font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;margin-left:6px;">✓ DRE</span>'
+        gu_b     =f'<span style="background:{AMBER}1A;color:#B8720A;font-size:9px;padding:1px 6px;border-radius:6px;font-weight:600;margin-left:6px;">🎯 Único</span>' if p.get("ganho_unico") else ""
         ult_obs  = get_ultima_obs_custos(p["id"])
         ult_obs_html = (f'<div style="margin-top:5px;font-size:10px;color:#7A8394;">'
                          f'💬 {_html.escape(ult_obs["texto"])}</div>') if ult_obs else ""
@@ -737,7 +739,7 @@ def render(user, **colors):
                        f'🔄 {replan}x replanejado</span>') if origem_novo and replan else ''
 
         hc(f"""
-<div style="border-left:4px solid {border_c};background:white;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:2px;box-shadow:0 1px 4px rgba(28,43,74,.06);">
+<div style="border-left:4px solid {border_c};background:{SURFACE};border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:2px;box-shadow:0 1px 4px {SHADOW_1};">
 <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
 <div style="flex:1;min-width:180px;">
 <div style="font-size:10px;color:{SILVER};">{p['tipo']}{dre_b}{gu_b} · {p.get('va_ggf','—')}</div>
@@ -762,7 +764,7 @@ def render(user, **colors):
             with col_edit:
                 toggle_editor_button(p, discreet=False)
             if st.session_state.get(f"edit_open_{p['id']}",False):
-                render_editor_dispatch(p, user, is_cc, GREEN, AMBER, RED)
+                render_editor_dispatch(p, user, is_cc, GREEN, AMBER, RED, NAVY, SURFACE, BORDER, SURFACE_2)
 
         st.markdown("<hr style='margin:4px 0;border-color:#EEF0F3;'>",unsafe_allow_html=True)
 
@@ -780,5 +782,5 @@ def render(user, **colors):
                     with c_pencil:
                         toggle_editor_button(p, discreet=True)
                     if st.session_state.get(f"edit_open_{p['id']}",False):
-                        render_editor_dispatch(p, user, is_cc, GREEN, AMBER, RED)
+                        render_editor_dispatch(p, user, is_cc, GREEN, AMBER, RED, NAVY, SURFACE, BORDER, SURFACE_2)
                 st.markdown("<hr style='margin:2px 0;border-color:#F5F5F5;'>",unsafe_allow_html=True)
