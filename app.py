@@ -283,6 +283,13 @@ def build_funnel(dados):
         font=dict(family="Inter", size=13, color=NAVY))
     return fig
 
+def _rgba(hex_cor, alpha):
+    """Plotly não aceita hex de 8 dígitos (#RRGGBBAA) — só 6 dígitos ou
+    rgba(). Usado pros tons claros/transparentes dentro de gráficos."""
+    h = hex_cor.lstrip("#")
+    r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
+    return f"rgba({r},{g},{b},{alpha})"
+
 def build_gauge(pct):
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=min(pct,100) if pct<999 else 100,
@@ -291,9 +298,9 @@ def build_gauge(pct):
         gauge={"axis":{"range":[0,100],"tickcolor":SILVER,"tickfont":{"size":9}},
                "bar":{"color":BLUE,"thickness":0.28},
                "bgcolor":SURFACE,"borderwidth":0,
-               "steps":[{"range":[0,40],"color":BLUE+"1F"},
-                        {"range":[40,70],"color":AMBER+"1F"},
-                        {"range":[70,100],"color":GREEN+"1F"}]}))
+               "steps":[{"range":[0,40],"color":_rgba(BLUE,0.12)},
+                        {"range":[40,70],"color":_rgba(AMBER,0.12)},
+                        {"range":[70,100],"color":_rgba(GREEN,0.12)}]}))
     fig.update_layout(margin=dict(l=24,r=24,t=20,b=10), height=320,
                        paper_bgcolor=SURFACE, font=dict(family="Inter"))
     return fig
