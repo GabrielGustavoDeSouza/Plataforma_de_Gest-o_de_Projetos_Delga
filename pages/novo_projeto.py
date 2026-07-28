@@ -195,6 +195,7 @@ def build_gantt(atividades, colors):
     do eixo (dia/semana/mês) se ajusta sozinha ao tamanho do projeto."""
     NAVY=colors.get("NAVY","#0B0F2B"); RED=colors.get("RED","#D93B3B")
     SILVER=colors.get("SILVER","#8A9BB0")
+    SURFACE=colors.get("SURFACE","#FFFFFF"); BORDER=colors.get("BORDER","#EEF0F3")
 
     linhas = []
     for a in atividades:
@@ -236,7 +237,7 @@ def build_gantt(atividades, colors):
             if cursor.weekday() >= 5:
                 fig.add_vrect(x0=datetime.combine(cursor, datetime.min.time()),
                               x1=datetime.combine(cursor+timedelta(days=1), datetime.min.time()),
-                              fillcolor="#F5F6FA", line_width=0, layer="below")
+                              fillcolor=BORDER, opacity=0.5, line_width=0, layer="below")
             cursor += timedelta(days=1)
 
     # separador de mês
@@ -244,7 +245,7 @@ def build_gantt(atividades, colors):
     while cursor <= janela_fim:
         if cursor >= janela_ini:
             fig.add_vline(x=datetime.combine(cursor, datetime.min.time()),
-                         line_width=1, line_color="#E4E7EF")
+                         line_width=1, line_color=BORDER)
         cursor = date(cursor.year+1, 1, 1) if cursor.month == 12 else date(cursor.year, cursor.month+1, 1)
 
     # barras estilo grade: trilho fino com borda (planejado) + preenchimento
@@ -263,7 +264,7 @@ def build_gantt(atividades, colors):
 
         fig.add_trace(go.Bar(
             x=[total_dias*DIA_MS], y=[tarefas[i]], base=[ini], orientation="h",
-            marker=dict(color="white", cornerradius=4, line=dict(color=cor, width=1.2)),
+            marker=dict(color=SURFACE, cornerradius=4, line=dict(color=cor, width=1.2)),
             showlegend=False, hoverinfo="skip", width=espessura))
         dias_preenchidos = round(total_dias*prog)
         if dias_preenchidos > 0:
@@ -288,14 +289,14 @@ def build_gantt(atividades, colors):
 
     fig.update_xaxes(type="date", range=[datetime.combine(janela_ini, datetime.min.time()),
                                           datetime.combine(janela_fim, datetime.min.time())],
-                     dtick=dtick, tickformat=fmt, tickangle=0, gridcolor="#EEF0F5",
+                     dtick=dtick, tickformat=fmt, tickangle=0, gridcolor=BORDER, color=NAVY,
                      side="top", showgrid=True)
-    fig.update_yaxes(autorange="reversed", title=None, showgrid=False)
+    fig.update_yaxes(autorange="reversed", title=None, showgrid=False, color=NAVY)
     fig.update_layout(
         barmode="overlay", height=max(240, 46*n + 60),
         margin=dict(l=10, r=20, t=40, b=10),
         bargap=0.35,
-        paper_bgcolor="white", plot_bgcolor="white",
+        paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
         font=dict(family="Inter", size=12, color=NAVY),
         showlegend=False)
     return fig
@@ -590,11 +591,11 @@ def _render_novo_projeto(user, colors):
 
     is_extra = tipo in EXTRA_DRE_TIPOS
     if is_extra:
-        st.markdown(f'<div style="background:#F3E8FF;border-left:3px solid #9B59B6;border-radius:0 6px 6px 0;'
+        st.markdown(f'<div style="background:#9B59B61A;border-left:3px solid #9B59B6;border-radius:0 6px 6px 0;'
                     f'padding:8px 14px;font-size:11px;color:#6C3483;"><b>↷ Extra DRE</b> — {tipo} não gera '
                     f'lançamento de real mensal.</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<div style="background:#E6F4EC;border-left:3px solid {GREEN};border-radius:0 6px 6px 0;'
+        st.markdown(f'<div style="background:{GREEN}1A;border-left:3px solid {GREEN};border-radius:0 6px 6px 0;'
                     f'padding:8px 14px;font-size:11px;color:#1A5C2E;"><b>✓ Dentro do DRE</b> — {tipo} impacta '
                     f'diretamente o DRE.</div>', unsafe_allow_html=True)
 
@@ -823,7 +824,7 @@ def _render_projetos_aplicados(user, colors):
     is_extra = tipo in EXTRA_DRE_TIPOS
     if is_extra:
         st.markdown(
-            f'<div style="background:#F3E8FF;border-left:3px solid #9B59B6;'
+            f'<div style="background:#9B59B61A;border-left:3px solid #9B59B6;'
             f'border-radius:0 6px 6px 0;padding:10px 14px;font-size:11px;color:#6C3483;">'
             f'<b>↷ Extra DRE</b> — <b>{tipo}</b> gera valor operacional mas <b>não impacta o DRE</b>. '
             f'Custos valida o valor, mas não há lançamento de real mensal para este projeto. '
@@ -833,7 +834,7 @@ def _render_projetos_aplicados(user, colors):
             unsafe_allow_html=True)
     else:
         st.markdown(
-            f'<div style="background:#E6F4EC;border-left:3px solid {GREEN};'
+            f'<div style="background:{GREEN}1A;border-left:3px solid {GREEN};'
             f'border-radius:0 6px 6px 0;padding:10px 14px;font-size:11px;color:#1A5C2E;">'
             f'<b>✓ Dentro do DRE</b> — <b>{tipo}</b> impacta diretamente o DRE. '
             f'Após aprovação de Custos, o valor é distribuído em 12 meses a partir do '
