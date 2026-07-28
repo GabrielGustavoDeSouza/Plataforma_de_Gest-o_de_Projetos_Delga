@@ -617,9 +617,9 @@ if pagina == "🏠 Dashboard Global":
     else:
         c1,c2,c3,c4=st.columns([2,2,2,3])
         _sanitizar_gp("gp_uni", opcoes_uni_gp)
-        with c1: f_uni=st.multiselect("Unidade:",opcoes_uni_gp,default=[],placeholder="Todas",key="gp_uni")
+        with c1: f_uni=st.multiselect("Unidade:",opcoes_uni_gp,placeholder="Todas",key="gp_uni")
     _sanitizar_gp("gp_st", opcoes_status_gp)
-    with c2: f_st=st.multiselect("Status:",opcoes_status_gp,default=[],placeholder="Todos",key="gp_st")
+    with c2: f_st=st.multiselect("Status:",opcoes_status_gp,placeholder="Todos",key="gp_st")
     with c3: f_ord=st.selectbox("Ordenar:",["Unidade","Maior Previsto","Atrasados primeiro"],key="gp_ord")
     with c4: f_nm=st.text_input("🔍 Buscar",placeholder="Nome...",key="gp_nm")
 
