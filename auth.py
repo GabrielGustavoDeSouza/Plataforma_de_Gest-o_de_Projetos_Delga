@@ -52,7 +52,7 @@ def login_page():
       border-radius:20px!important;padding:34px 40px 26px!important;
       box-shadow:0 24px 70px rgba(0,0,0,.35),0 2px 0 rgba(255,255,255,.04) inset;}}
     [data-testid="stForm"] [data-testid="stTextInput"] label{{
-      color:rgba(255,255,255,.55)!important;font-size:11px!important;
+      color:rgba(255,255,255,.92)!important;font-size:11px!important;
       font-weight:600!important;text-transform:uppercase;letter-spacing:.6px;}}
     [data-testid="stForm"] [data-testid="stTextInput"] input{{
       background:rgba(255,255,255,.07)!important;border:1px solid rgba(255,255,255,.16)!important;
@@ -84,8 +84,7 @@ def login_page():
         st.markdown(f"""
         <div style="margin-top:4vh;">
           <div class="login-logo-wrap"><img src="{LOGO_LIGHT_DATA_URI}"></div>
-          <div class="login-eyebrow">Grupo Delga</div>
-          <div class="login-title">Plataforma de Gestão de Projetos</div>
+          <div class="login-title" style="margin-top:14px;">Plataforma de Gestão de Projetos</div>
           <div class="login-sub">Redução de Custos &amp; Performance Operacional</div>
         </div>
         """, unsafe_allow_html=True)
