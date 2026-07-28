@@ -1,6 +1,6 @@
 import streamlit as st
 from database import autenticar
-from assets import LOGO_LIGHT_DATA_URI
+from assets import LOGO_LIGHT_DATA_URI, LOGIN_VIDEO_DATA_URI, LOGIN_OVERLAY_DATA_URI
 from theme import toggle_tema_button
 
 NAVY  = "#0B0F2B"
@@ -9,6 +9,22 @@ BLUE2 = "#33459E"
 RED   = "#D93B3B"
 
 def login_page():
+    # Fundo animado — vídeo institucional em loop, com o filtro azul
+    # diagonal por cima (mix-blend-mode: multiply) pra ficar elegante e não
+    # brigar com o texto. Tudo position:fixed, z-index negativo, então fica
+    # atrás do cartão de login sem interferir em nada da interação.
+    st.markdown(f"""
+    <video autoplay muted loop playsinline
+      style="position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:-3;">
+      <source src="{LOGIN_VIDEO_DATA_URI}" type="video/mp4">
+    </video>
+    <div style="position:fixed;inset:0;width:100%;height:100%;z-index:-2;
+         background-image:url('{LOGIN_OVERLAY_DATA_URI}');background-size:cover;
+         background-position:center;mix-blend-mode:multiply;opacity:.92;"></div>
+    <div style="position:fixed;inset:0;width:100%;height:100%;z-index:-1;
+         background:linear-gradient(180deg,rgba(6,8,26,.35) 0%,rgba(6,8,26,.55) 100%);"></div>
+    """, unsafe_allow_html=True)
+
     st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -18,14 +34,7 @@ def login_page():
     section[data-testid="stSidebar"]{{display:none!important;}}
     .block-container{{padding-top:3vh!important;max-width:1400px;}}
 
-    [data-testid="stAppViewContainer"], .stApp{{
-      background:
-        radial-gradient(circle at 12% 8%,{BLUE}33 0%,transparent 38%),
-        radial-gradient(circle at 88% 85%,{BLUE2}2b 0%,transparent 42%),
-        repeating-linear-gradient(115deg,rgba(255,255,255,.02) 0px,rgba(255,255,255,.02) 1px,transparent 1px,transparent 64px),
-        linear-gradient(160deg,{NAVY} 0%,#10143A 55%,#151A4A 100%);
-      background-attachment:fixed;
-    }}
+    [data-testid="stAppViewContainer"], .stApp{{background:transparent!important;}}
 
     .login-logo-wrap{{display:flex;justify-content:center;margin-bottom:22px;}}
     .login-logo-wrap img{{height:54px;filter:drop-shadow(0 4px 18px rgba(20,40,255,.35));}}
