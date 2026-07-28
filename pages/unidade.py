@@ -386,8 +386,16 @@ def render(user, **colors):
     projetos_uni = listar_projetos(sel)
     nomes_proj = [f"#{p['id']} — {p['nome'][:28]}" for p in projetos_uni]
     proj_map   = {f"#{p['id']} — {p['nome'][:28]}": p for p in projetos_uni}
+    # Sanitiza a seleção guardada antes de desenhar o filtro — se um backup
+    # foi restaurado (ou o projeto foi apagado) entre uma visita e outra, os
+    # IDs mudam e uma seleção antiga travava a tela em branco. Limpa aqui,
+    # sempre, não só logo depois de um restore.
+    sel_anterior = st.session_state.get("gr_projs", [])
+    sel_valida = [np for np in sel_anterior if np in nomes_proj]
+    if sel_valida != sel_anterior:
+        st.session_state["gr_projs"] = sel_valida
     proj_sel = st.multiselect("Filtrar por projeto (vazio = unidade inteira):", nomes_proj,
-                              default=[], key="gr_projs", placeholder="Todos os projetos")
+                              key="gr_projs", placeholder="Todos os projetos")
 
     kpi_unidade_full = kpis_unidade(sel, ano_sel)
     meta_raw = kpi_unidade_full["meta"] or 0
@@ -588,9 +596,17 @@ def render(user, **colors):
        f'margin:20px 0 14px;display:inline-block;">Projetos da Unidade</p>')
 
     opcoes_status = list({p["status"] for p in projetos_uni}) + ["🔴 Atraso"]
+    opcoes_tipo = list({p["tipo"] for p in projetos_uni})
+    def _sanitizar(chave, opcoes):
+        atual = st.session_state.get(chave, [])
+        valido = [v for v in atual if v in opcoes]
+        if valido != atual:
+            st.session_state[chave] = valido
+    _sanitizar("ud_fst", opcoes_status)
+    _sanitizar("ud_fti", opcoes_tipo)
     c1,c2,c3,c4=st.columns([2,2,2,3])
-    with c1: f_st=st.multiselect("Status:",opcoes_status,default=[],placeholder="Todos",key="ud_fst")
-    with c2: f_ti=st.multiselect("Tipo:",list({p["tipo"] for p in projetos_uni}),default=[],placeholder="Todos",key="ud_fti")
+    with c1: f_st=st.multiselect("Status:",opcoes_status,placeholder="Todos",key="ud_fst")
+    with c2: f_ti=st.multiselect("Tipo:",opcoes_tipo,placeholder="Todos",key="ud_fti")
     with c3: f_cu=st.multiselect("Custos:",["Pendente","OK","NOK"],default=[],placeholder="Todos",key="ud_fcu")
     with c4: f_nm=st.text_input("🔍 Buscar",placeholder="Nome...",key="ud_fn")
 
