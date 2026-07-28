@@ -601,14 +601,10 @@ if pagina == "🏠 Dashboard Global":
     st.markdown(f'<span class="st">Todos os Projetos — {titulo_escopo}, {ano_dash}</span>', unsafe_allow_html=True)
     st.caption("O detalhe, projeto a projeto.")
 
-    def _sanitizar_gp(chave, opcoes):
-        atual = st.session_state.get(chave, [])
-        valido = [v for v in atual if v in opcoes]
-        if valido != atual:
-            st.session_state[chave] = valido
-
     opcoes_uni_gp = [u["nome"] for u in unidades]
     opcoes_status_gp = list({p["status"] for p in todos_proj})
+    assin_uni_gp = f"{len(opcoes_uni_gp)}_{abs(hash(tuple(sorted(opcoes_uni_gp)))) % 100000}"
+    assin_st_gp = f"{len(opcoes_status_gp)}_{abs(hash(tuple(sorted(opcoes_status_gp)))) % 100000}"
     if unidade_filtro:
         # Unidade já veio do seletor lá em cima — não duplica o filtro aqui
         # pra não ficar um preso e o outro solto.
@@ -616,10 +612,8 @@ if pagina == "🏠 Dashboard Global":
         f_uni=[unidade_filtro]
     else:
         c1,c2,c3,c4=st.columns([2,2,2,3])
-        _sanitizar_gp("gp_uni", opcoes_uni_gp)
-        with c1: f_uni=st.multiselect("Unidade:",opcoes_uni_gp,placeholder="Todas",key="gp_uni")
-    _sanitizar_gp("gp_st", opcoes_status_gp)
-    with c2: f_st=st.multiselect("Status:",opcoes_status_gp,placeholder="Todos",key="gp_st")
+        with c1: f_uni=st.multiselect("Unidade:",opcoes_uni_gp,placeholder="Todas",key=f"gp_uni_{assin_uni_gp}")
+    with c2: f_st=st.multiselect("Status:",opcoes_status_gp,placeholder="Todos",key=f"gp_st_{assin_st_gp}")
     with c3: f_ord=st.selectbox("Ordenar:",["Unidade","Maior Previsto","Atrasados primeiro"],key="gp_ord")
     with c4: f_nm=st.text_input("🔍 Buscar",placeholder="Nome...",key="gp_nm")
 
