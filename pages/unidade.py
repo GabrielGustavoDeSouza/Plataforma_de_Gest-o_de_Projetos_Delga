@@ -386,27 +386,56 @@ def render(user, **colors):
     ano_sel = st.session_state["ano_uni"]
 
     # Carry Over — só aparece se houver valor saindo deste ano pro seguinte,
-    # e só considera projetos já validados por Custos (validador_ok='OK')
+    # só considera projetos já validados por Custos (validador_ok='OK'), e
+    # fica agrupado por projeto (com totais), abrindo pra ver os meses.
     fora = get_carry_over(ano_sel, sel)
     seguinte = [f for f in fora if f["direcao"]=="seguinte"]
     if seguinte:
         total_uni = sum(f["valor_unidade"] for f in seguinte)
         total_cus = sum(f["valor_custos"] for f in seguinte)
-        with st.expander(f"↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
-                         f"Custos {fmt_brl(total_cus)}  de {ano_sel} com "
-                         f"retorno previsto em {ano_sel+1}", expanded=False):
-            df_co = pd.DataFrame([{
-                "Projeto": f["projeto"],
-                "Mês": f"{MESES_PT[f['mes']-1]}/{f['ano']}",
-                "Valor Unidade": f["valor_unidade"],
-                "Valor Custos": f["valor_custos"],
-            } for f in seguinte])
-            st.caption("Clique no cabeçalho de qualquer coluna pra ordenar (crescente/decrescente).")
-            st.dataframe(df_co, use_container_width=True, hide_index=True,
-                         column_config={
-                             "Valor Unidade": st.column_config.NumberColumn(format="R$ %,.0f"),
-                             "Valor Custos": st.column_config.NumberColumn(format="R$ %,.0f"),
-                         })
+
+        chave = f"carry_open_uni_{ano_sel}_{sel}"
+        if chave not in st.session_state: st.session_state[chave] = False
+        seta = "▾" if st.session_state[chave] else "▸"
+        rotulo = (f"{seta}  ↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
+                  f"Custos {fmt_brl(total_cus)}  de {ano_sel} com retorno "
+                  f"previsto em {ano_sel+1}")
+        with st.container(key=f"carry_toggle_{chave}"):
+            if st.button(rotulo, key=f"{chave}_btn", use_container_width=True):
+                st.session_state[chave] = not st.session_state[chave]; st.rerun()
+
+        if st.session_state[chave]:
+            por_projeto = {}
+            for f in seguinte:
+                k = (f["proj_id"], f["projeto"])
+                por_projeto.setdefault(k, []).append(f)
+            linhas = [{"projeto":nome,
+                       "valor_unidade":sum(m["valor_unidade"] for m in meses),
+                       "valor_custos":sum(m["valor_custos"] for m in meses),
+                       "meses":sorted(meses, key=lambda m:(m["ano"],m["mes"]))}
+                      for (pid,nome),meses in por_projeto.items()]
+
+            ordenar = st.selectbox("Ordenar projetos por:",
+                ["Valor Unidade (maior → menor)","Valor Custos (maior → menor)",
+                 "Projeto (A → Z)"], key=f"{chave}_ord")
+            if ordenar.startswith("Valor Unidade"): linhas.sort(key=lambda l:l["valor_unidade"], reverse=True)
+            elif ordenar.startswith("Valor Custos"): linhas.sort(key=lambda l:l["valor_custos"], reverse=True)
+            else: linhas.sort(key=lambda l:l["projeto"])
+
+            for l in linhas:
+                titulo = (f"{l['projeto']}  —  Unidade {fmt_brl(l['valor_unidade'])}  "
+                          f"‖  Custos {fmt_brl(l['valor_custos'])}")
+                with st.expander(titulo, expanded=False):
+                    df_m = pd.DataFrame([{
+                        "Mês": f"{MESES_PT[m['mes']-1]}/{m['ano']}",
+                        "Valor Unidade": m["valor_unidade"],
+                        "Valor Custos": m["valor_custos"],
+                    } for m in l["meses"]])
+                    st.dataframe(df_m, use_container_width=True, hide_index=True,
+                                 column_config={
+                                     "Valor Unidade": st.column_config.NumberColumn(format="R$ %,.0f"),
+                                     "Valor Custos": st.column_config.NumberColumn(format="R$ %,.0f"),
+                                 })
 
     projetos_uni = listar_projetos(sel)
     nomes_proj = [f"#{p['id']} — {p['nome'][:28]}" for p in projetos_uni]
