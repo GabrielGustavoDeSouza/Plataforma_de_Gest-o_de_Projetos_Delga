@@ -177,20 +177,29 @@ label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] p{{
    Menu lateral (navegação por página) — agora feito com botões próprios
    em vez de st.radio, pra ter controle total do indicador de item ativo.
    ═══════════════════════════════════════════════════════════════════════ */
-.st-key-nav_menu [data-testid="stHorizontalBlock"]{{
-  align-items:center!important;gap:0!important;margin-bottom:1px!important;}}
-.st-key-nav_menu [data-testid="column"]{{padding:0!important;}}
 .st-key-nav_menu button[kind="secondary"]{{
   background:transparent!important;border:none!important;box-shadow:none!important;
-  justify-content:flex-start!important;padding:8px 10px!important;
-  border-radius:8px!important;transition:background .15s ease;min-height:0!important;}}
+  justify-content:flex-start!important;padding:9px 12px!important;
+  border-radius:8px!important;transition:background .15s ease;min-height:0!important;
+  margin-bottom:1px!important;}}
 .st-key-nav_menu button[kind="secondary"]:hover{{
   background:{HOVER}!important;border:none!important;}}
 .st-key-nav_menu button[kind="secondary"] p{{
   text-align:left!important;font-size:13.5px!important;color:{TEXT}!important;
-  margin:0!important;}}
+  margin:0!important;width:100%!important;}}
 .st-key-nav_menu button[kind="secondary"]:hover p{{color:{BLUE2}!important;}}
 .st-key-nav_menu button[kind="secondary"] strong{{color:{BLUE2}!important;}}
+
+/* Cabeçalho clicável do Carry Over (substitui o expander, que não pode
+   ficar aninhado dentro de outro expander) — alinhado à esquerda, com
+   cara de "seção", igual o antigo st.expander tinha. */
+[class*="st-key-carry_toggle_"] button[kind="secondary"]{{
+  justify-content:flex-start!important;font-weight:600!important;
+  border-color:{BORDER}!important;padding:10px 16px!important;}}
+[class*="st-key-carry_toggle_"] button[kind="secondary"] p{{
+  text-align:left!important;font-size:13px!important;}}
+[class*="st-key-carry_toggle_"] button[kind="secondary"]:hover{{
+  border-color:{BLUE}!important;color:{BLUE}!important;}}
 
 /* ═══════════════════════════════════════════════════════════════════════
    Polimento geral — inputs, botões, cards, tabelas com transições suaves,
@@ -310,24 +319,19 @@ with st.sidebar:
     if "pagina_atual" not in st.session_state or st.session_state["pagina_atual"] not in opcoes:
         st.session_state["pagina_atual"] = opcoes[0]
 
-    # Navegação feita com botões próprios (não st.radio) — o indicador de
-    # item ativo é um <div> nosso, não um componente interno do Streamlit,
-    # então garantimos 100% a cor (azul) e a ausência de qualquer caixa/pill
-    # de fundo, sem depender de como o Streamlit desenha o rádio por dentro.
+    # Navegação feita com botões próprios (não st.radio). O indicador de
+    # item ativo vai DENTRO do próprio texto do botão (não numa coluna ao
+    # lado) — assim cada linha é um único elemento, com uma única altura e
+    # um único alinhamento, e nunca corre o risco de desincronizar entre
+    # a bolinha e o texto.
     with st.container(key="nav_menu"):
         for op in opcoes:
             ativo = (st.session_state["pagina_atual"] == op)
-            c_dot, c_btn = st.columns([0.09, 0.91], gap="small")
-            with c_dot:
-                cor_dot = BLUE if ativo else "transparent"
-                st.markdown(f'<div style="width:8px;height:8px;border-radius:50%;'
-                            f'background:{cor_dot};margin:15px auto 0;"></div>',
-                            unsafe_allow_html=True)
-            with c_btn:
-                rotulo = f"**{op}**" if ativo else op
-                if st.button(rotulo, key=f"nav_btn_{op}", use_container_width=True):
-                    st.session_state["pagina_atual"] = op
-                    st.rerun()
+            marcador = "🔵" if ativo else "⚪"
+            rotulo = f"{marcador}  **{op}**" if ativo else f"{marcador}  {op}"
+            if st.button(rotulo, key=f"nav_btn_{op}", use_container_width=True):
+                st.session_state["pagina_atual"] = op
+                st.rerun()
 
     pagina = st.session_state["pagina_atual"]
 
@@ -376,27 +380,58 @@ def year_nav(key, help_txt=""):
 def render_carry_over(ano_ref, unidade_nome=None):
     """Botão discreto que só aparece quando há valor de retorno previsto
     saindo do ano vigente pro ano seguinte (Ganho a partir de fora de jan).
-    Só considera projetos validados por Custos (validador_ok='OK')."""
+    Só considera projetos validados por Custos (validador_ok='OK').
+    Agrupado por projeto (com totais) — cada projeto abre e mostra o
+    detalhe mês a mês."""
     fora = get_carry_over(ano_ref, unidade_nome)
     seguinte = [f for f in fora if f["direcao"]=="seguinte"]
     if not seguinte: return
     total_uni = sum(f["valor_unidade"] for f in seguinte)
     total_cus = sum(f["valor_custos"] for f in seguinte)
-    with st.expander(f"↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
-                     f"Custos {fmt_brl(total_cus)}  de {ano_ref} com retorno "
-                     f"previsto em {ano_ref+1}", expanded=False):
-        df_co = pd.DataFrame([{
-            "Projeto": f["projeto"], "Unidade": f["unidade"],
-            "Mês": f"{MESES_PT[f['mes']-1]}/{f['ano']}",
-            "Valor Unidade": f["valor_unidade"],
-            "Valor Custos": f["valor_custos"],
-        } for f in seguinte])
-        st.caption("Clique no cabeçalho de qualquer coluna pra ordenar (crescente/decrescente).")
-        st.dataframe(df_co, use_container_width=True, hide_index=True,
-                     column_config={
-                         "Valor Unidade": st.column_config.NumberColumn(format="R$ %,.0f"),
-                         "Valor Custos": st.column_config.NumberColumn(format="R$ %,.0f"),
-                     })
+
+    chave = f"carry_open_{ano_ref}_{unidade_nome or 'global'}"
+    if chave not in st.session_state: st.session_state[chave] = False
+    seta = "▾" if st.session_state[chave] else "▸"
+    rotulo = (f"{seta}  ↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
+              f"Custos {fmt_brl(total_cus)}  de {ano_ref} com retorno "
+              f"previsto em {ano_ref+1}")
+    with st.container(key=f"carry_toggle_{chave}"):
+        if st.button(rotulo, key=f"{chave}_btn", use_container_width=True):
+            st.session_state[chave] = not st.session_state[chave]; st.rerun()
+    if not st.session_state[chave]: return
+
+    por_projeto = {}
+    for f in seguinte:
+        k = (f["proj_id"], f["projeto"], f["unidade"])
+        por_projeto.setdefault(k, []).append(f)
+    linhas = [{"projeto":nome, "unidade":uni,
+               "valor_unidade":sum(m["valor_unidade"] for m in meses),
+               "valor_custos":sum(m["valor_custos"] for m in meses),
+               "meses":sorted(meses, key=lambda m:(m["ano"],m["mes"]))}
+              for (pid,nome,uni),meses in por_projeto.items()]
+
+    ordenar = st.selectbox("Ordenar projetos por:",
+        ["Valor Unidade (maior → menor)","Valor Custos (maior → menor)",
+         "Projeto (A → Z)","Unidade (A → Z)"], key=f"{chave}_ord")
+    if ordenar.startswith("Valor Unidade"): linhas.sort(key=lambda l:l["valor_unidade"], reverse=True)
+    elif ordenar.startswith("Valor Custos"): linhas.sort(key=lambda l:l["valor_custos"], reverse=True)
+    elif ordenar.startswith("Projeto"): linhas.sort(key=lambda l:l["projeto"])
+    else: linhas.sort(key=lambda l:l["unidade"])
+
+    for l in linhas:
+        titulo = (f"{l['projeto']}  ·  {l['unidade']}  —  "
+                  f"Unidade {fmt_brl(l['valor_unidade'])}  ‖  Custos {fmt_brl(l['valor_custos'])}")
+        with st.expander(titulo, expanded=False):
+            df_m = pd.DataFrame([{
+                "Mês": f"{MESES_PT[m['mes']-1]}/{m['ano']}",
+                "Valor Unidade": m["valor_unidade"],
+                "Valor Custos": m["valor_custos"],
+            } for m in l["meses"]])
+            st.dataframe(df_m, use_container_width=True, hide_index=True,
+                         column_config={
+                             "Valor Unidade": st.column_config.NumberColumn(format="R$ %,.0f"),
+                             "Valor Custos": st.column_config.NumberColumn(format="R$ %,.0f"),
+                         })
 
 def build_funnel(dados):
     labels  = ["Meta do Grupo","Previsto (Unidade)","Validado por Custos","Real Lançado"]
