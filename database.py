@@ -1206,17 +1206,26 @@ def resumo_por_pilar(unidade_nome=None, ano=None):
 
 def get_carry_over(ano_ref, unidade_nome=None):
     """Meses da curva de projetos DRE que caem FORA do ano de referência —
-    parte do previsto que 'sai' do ano vigente (geralmente por causa de um
-    'Ganho a partir de' fora de janeiro, que joga meses pro ano seguinte)."""
+    parte do valor que 'sai' do ano vigente (geralmente por causa de um
+    'Ganho a partir de' fora de janeiro, que joga meses pro ano seguinte).
+    Só entra como carry over o projeto já VALIDADO por Custos
+    (validador_ok='OK') e com valor calculado por Custos definido — projeto
+    ainda pendente de validação não conta. Retorna, por mês, tanto o valor
+    Unidade (previsto_unidade) quanto o valor Custos (previsto_custos)."""
     projetos = listar_projetos(unidade_nome, incluir_campeao=True)
     fora = []
     for p in projetos:
         if is_extra_dre(p["tipo"]): continue
-        curva = get_curva_unidade(p["id"])
-        for (y,m),v in curva.items():
-            if y != ano_ref and v > 0:
+        if p.get("validador_ok", "Pendente") != "OK": continue
+        if not (p.get("previsto_custos") or 0) > 0: continue
+        curva_uni = get_curva_unidade(p["id"])
+        curva_cus = get_curva_custos(p["id"])
+        for (y,m),v_uni in curva_uni.items():
+            if y != ano_ref and v_uni > 0:
+                v_cus = curva_cus.get((y,m), 0)
                 fora.append({"projeto":p["nome"], "unidade":p["unidade_nome"],
-                            "proj_id":p["id"], "ano":y, "mes":m, "valor":v,
+                            "proj_id":p["id"], "ano":y, "mes":m,
+                            "valor_unidade":v_uni, "valor_custos":v_cus,
                             "direcao":"anterior" if y<ano_ref else "seguinte"})
     fora.sort(key=lambda x:(x["ano"],x["mes"]))
     return fora
