@@ -77,19 +77,34 @@ div[data-testid="collapsedControl"],
    "pages/" e ele tenta criar navegação nativa por cima da nossa) */
 [data-testid="stSidebarNav"]{{display:none!important;}}
 section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"]{{padding-top:8px!important;}}
-/* Todo elemento nativo do Streamlit que usa a cor primária (botão
-   selecionado, tags de multiselect, radio/checkbox) fica azul da marca —
-   não depende do .streamlit/config.toml estar ativo. */
+/* ═══════════════════════════════════════════════════════════════════════
+   Reset de cor primária — todo elemento nativo do Streamlit que usa a cor
+   primária (botão selecionado, tags, radio/checkbox, slider) fica azul da
+   marca. Cobrimos várias variações de seletor porque o DOM interno do
+   Streamlit muda entre versões — não depende de nenhuma delas isoladamente.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root, .stApp{{
+  --primary-color:{BLUE}!important;--primaryColor:{BLUE}!important;
+  accent-color:{BLUE};
+}}
 button[kind="primary"], button[kind="primaryFormSubmit"]{{
   background:linear-gradient(120deg,{BLUE} 0%,{BLUE2} 100%)!important;
-  border:none!important;color:white!important;}}
+  border:none!important;color:white!important;
+  transition:filter .15s ease,transform .1s ease;}}
+button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover{{filter:brightness(1.08);}}
+button[kind="primary"]:active, button[kind="primaryFormSubmit"]:active{{transform:scale(.98);}}
 button[kind="primary"] p, button[kind="primaryFormSubmit"] p{{color:white!important;}}
-[data-baseweb="tag"]{{background-color:{BLUE}!important;border-color:{BLUE}!important;}}
+[data-baseweb="tag"]{{background-color:{BLUE}!important;border-color:{BLUE}!important;
+  border-radius:6px!important;}}
 [data-baseweb="tag"] span{{color:white!important;}}
 [data-baseweb="tag"] svg{{fill:white!important;}}
 input[type="radio"],input[type="checkbox"]{{accent-color:{BLUE}!important;}}
-[data-baseweb="radio"] div[aria-checked="true"] svg,
-[data-baseweb="checkbox"] svg{{fill:{BLUE}!important;}}
+[data-baseweb="radio"] svg, [data-baseweb="checkbox"] svg{{fill:{BLUE}!important;}}
+[data-baseweb="radio"] [aria-checked="true"],
+[data-baseweb="radio"] [data-checked="true"],
+[data-baseweb="radio"] div[role="radio"][aria-checked="true"]{{
+  border-color:{BLUE}!important;background-color:{BLUE}!important;
+  outline-color:{BLUE}!important;box-shadow:none!important;}}
 [data-testid="stRadio"] input[type="radio"]:checked + div,
 [data-testid="stCheckbox"] input[type="checkbox"]:checked + div{{
   background-color:{BLUE}!important;border-color:{BLUE}!important;
@@ -97,9 +112,6 @@ input[type="radio"],input[type="checkbox"]{{accent-color:{BLUE}!important;}}
 [data-testid="stRadio"] input[type="radio"]:checked + div > div,
 [data-testid="stCheckbox"] input[type="checkbox"]:checked + div > div{{
   background-color:{BLUE}!important;}}
-/* A caixinha de check fica dentro de um <span> escondido antes do <div>
-   visível, então o seletor "input + div" não bate — usa o mesmo padrão
-   estrutural do rádio (label[data-selected]). */
 [data-testid="stCheckbox"] label[data-selected="true"] > div:first-of-type{{
   background-color:{BLUE}!important;border-color:{BLUE}!important;}}
 label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first-child,
@@ -109,17 +121,72 @@ label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first
   outline-color:{BLUE}!important;box-shadow:none!important;}}
 label[data-testid="stRadioOption"][data-selected="true"] > div > div > div:first-child > div{{
   background-color:{BLUE}!important;border-color:{BLUE}!important;}}
-/* Garante que só a bolinha é pintada — a linha/texto do item nunca ganha fundo */
-label[data-testid="stRadioOption"],
+/* Cobertura extra via :has() (navegadores modernos) — pega a bolinha do
+   rádio independente da versão exata do DOM interno do Streamlit. */
+label:has(> input[type="radio"]:checked) div[role="radio"],
+label:has(input[type="radio"]:checked) [data-baseweb="radio"] > div:first-child{{
+  border-color:{BLUE}!important;}}
+[data-testid="stSlider"] div[role="slider"]{{background-color:{BLUE}!important;
+  box-shadow:0 0 0 4px {BLUE}22!important;}}
+[data-testid="stSlider"] .stSliderTrackActive{{background-color:{BLUE}!important;}}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Menu lateral (navegação por página) — cartão "pill" suave em vez da
+   barra escura padrão do Streamlit, com indicador azul (não vermelho).
+   ═══════════════════════════════════════════════════════════════════════ */
+section[data-testid="stSidebar"] [data-testid="stRadio"]{{margin-top:2px;}}
+section[data-testid="stSidebar"] [data-testid="stRadio"] > div{{gap:2px!important;}}
+label[data-testid="stRadioOption"], label:has(> input[type="radio"]){{
+  border-radius:10px!important;padding:9px 12px!important;margin:0!important;
+  transition:background .15s ease,color .15s ease;cursor:pointer;}}
+label[data-testid="stRadioOption"]:hover, label:has(> input[type="radio"]):hover{{
+  background:{HOVER}!important;}}
+/* Item selecionado: fundo azul-claro translúcido + texto em negrito na
+   cor da marca — nunca o pill navy escuro que o Streamlit aplica sozinho */
+label[data-testid="stRadioOption"][data-selected="true"],
+label:has(> input[type="radio"]:checked){{
+  background:{BLUE}18!important;}}
+label[data-testid="stRadioOption"][data-selected="true"] [data-testid="stMarkdownContainer"] p,
+label:has(> input[type="radio"]:checked) [data-testid="stMarkdownContainer"] p{{
+  color:{BLUE2}!important;font-weight:700!important;}}
+/* Garante que só o "cartão" do item ganha fundo — nunca sub-elementos
+   internos criando aquele efeito de barra dupla/escura */
 label[data-testid="stRadioOption"] > div,
 label[data-testid="stRadioOption"] > div > div,
 label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"]{{
   background:transparent!important;box-shadow:none!important;}}
-[data-testid="stSlider"] div[role="slider"]{{background-color:{BLUE}!important;}}
-[data-testid="stSlider"] .stSliderTrackActive{{background-color:{BLUE}!important;}}
+label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] p{{
+  font-size:13.5px;font-weight:500;color:{TEXT};margin:0;}}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Polimento geral — inputs, botões, cards, tabelas com transições suaves,
+   raios de borda consistentes e sombras mais discretas/profissionais.
+   ═══════════════════════════════════════════════════════════════════════ */
+[data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea,
+[data-testid="stNumberInput"] input, [data-testid="stDateInput"] input,
+[data-baseweb="select"] > div, [data-baseweb="input"]{{
+  border-radius:8px!important;transition:border-color .15s ease,box-shadow .15s ease;}}
+[data-testid="stTextInput"] input:focus, [data-testid="stTextArea"] textarea:focus,
+[data-testid="stNumberInput"] input:focus{{
+  border-color:{BLUE}!important;box-shadow:0 0 0 3px {BLUE}22!important;}}
+button[kind="secondary"], button[kind="secondaryFormSubmit"]{{
+  border-radius:8px!important;transition:background .15s ease,border-color .15s ease;}}
+button[kind="secondary"]:hover, button[kind="secondaryFormSubmit"]:hover{{
+  border-color:{BLUE}!important;color:{BLUE}!important;}}
+button[kind="secondary"]:hover p, button[kind="secondaryFormSubmit"]:hover p{{color:{BLUE}!important;}}
+[data-testid="stExpander"]{{border-radius:10px!important;border-color:{BORDER}!important;
+  overflow:hidden;}}
+[data-testid="stDataFrame"], [data-testid="stDataEditor"]{{
+  border-radius:10px;border:1px solid {BORDER};}}
+/* Scrollbar discreta, alinhada à paleta */
+::-webkit-scrollbar{{width:9px;height:9px;}}
+::-webkit-scrollbar-track{{background:transparent;}}
+::-webkit-scrollbar-thumb{{background:{SILVER}55;border-radius:8px;}}
+::-webkit-scrollbar-thumb:hover{{background:{SILVER}88;}}
+
 .plat-header{{background:linear-gradient(120deg,{NAVY} 0%,#151B45 55%,#1B1F5C 100%);
   padding:18px 30px;border-radius:0 0 16px 16px;display:flex;align-items:center;
-  gap:18px;margin-bottom:20px;box-shadow:0 4px 20px rgba(11,15,43,.25);
+  gap:18px;margin-bottom:22px;box-shadow:0 4px 22px rgba(11,15,43,.28);
   position:relative;overflow:hidden;}}
 .plat-header::after{{content:"";position:absolute;top:-60%;right:-6%;width:260px;height:260px;
   background:radial-gradient(circle,{BLUE}55 0%,transparent 70%);pointer-events:none;}}
@@ -133,8 +200,10 @@ label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"]{{
   white-space:nowrap;border:1px solid rgba(255,255,255,.16);position:relative;z-index:1;}}
 .kpi-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin-bottom:16px;}}
 .kpi-card{{background:{SURFACE};border-radius:12px;padding:16px 18px;
-  border-left:4px solid {BLUE};
-  box-shadow:0 1px 4px {SHADOW_1},0 4px 16px {SHADOW_2};}}
+  border-left:4px solid {BLUE};border-top:1px solid {BORDER};
+  border-right:1px solid {BORDER};border-bottom:1px solid {BORDER};
+  box-shadow:0 1px 3px {SHADOW_1};transition:box-shadow .18s ease,transform .18s ease;}}
+.kpi-card:hover{{box-shadow:0 6px 18px {SHADOW_2};transform:translateY(-1px);}}
 .kpi-card.green{{border-left-color:{GREEN};}}
 .kpi-card.amber{{border-left-color:{AMBER};}}
 .kpi-card.red{{border-left-color:{RED};}}
@@ -143,15 +212,17 @@ label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"]{{
 .kpi-v{{font-size:20px;font-weight:700;color:{NAVY};line-height:1.1;}}
 .kpi-d{{font-size:10px;color:{SILVER};margin-top:3px;}}
 .sc{{background:{SURFACE};border-radius:12px;padding:20px 22px;
-  box-shadow:0 1px 4px {SHADOW_1},0 4px 16px {SHADOW_2};
+  border:1px solid {BORDER};
+  box-shadow:0 1px 3px {SHADOW_1};
   margin-bottom:16px;color:{TEXT};}}
 .st{{font-size:11px;font-weight:700;color:{NAVY};text-transform:uppercase;
   letter-spacing:.7px;border-bottom:2px solid {BLUE};
   padding-bottom:6px;margin-bottom:14px;display:inline-block;}}
 .dt{{width:100%;border-collapse:collapse;font-size:12px;color:{TEXT};}}
 .dt thead th{{background:{NAVY};color:{BG if tema_atual()=="escuro" else "white"};padding:9px 12px;
-  text-align:left;font-size:11px;font-weight:600;}}
+  text-align:left;font-size:11px;font-weight:600;letter-spacing:.3px;}}
 .dt tbody tr:nth-child(even){{background:{SURFACE_2};}}
+.dt tbody tr{{transition:background .12s ease;}}
 .dt tbody tr:hover{{background:{HOVER};}}
 .dt tbody td{{padding:8px 12px;border-bottom:1px solid {BORDER};vertical-align:middle;}}
 </style>
@@ -182,8 +253,9 @@ st.markdown(f"""
 
 # ── Menu por perfil ───────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f'<span style="font-size:11px;font-weight:700;color:{NAVY};'
-                f'text-transform:uppercase;letter-spacing:.5px;">Menu</span>',
+    st.markdown(f'<div style="font-size:10px;font-weight:700;color:{SILVER};'
+                f'text-transform:uppercase;letter-spacing:.8px;margin:2px 0 8px;'
+                f'padding-bottom:8px;border-bottom:1px solid {BORDER};">Navegação</div>',
                 unsafe_allow_html=True)
     if perfil == "admin":
         opcoes = ["🏠 Dashboard Global","🏭 Minha Unidade",
