@@ -384,20 +384,25 @@ def render(user, **colors):
             st.session_state["ano_uni"] += 1; st.rerun()
     ano_sel = st.session_state["ano_uni"]
 
-    # Carry Over — só aparece se houver valor saindo deste ano pro seguinte
+    # Carry Over — só aparece se houver valor saindo deste ano pro seguinte,
+    # e só considera projetos já validados por Custos (validador_ok='OK')
     fora = get_carry_over(ano_sel, sel)
     seguinte = [f for f in fora if f["direcao"]=="seguinte"]
     if seguinte:
-        total_co = sum(f["valor"] for f in seguinte)
-        with st.expander(f"↷ Carry Over — {fmt_brl(total_co)} de {ano_sel} com "
+        total_uni = sum(f["valor_unidade"] for f in seguinte)
+        total_cus = sum(f["valor_custos"] for f in seguinte)
+        with st.expander(f"↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
+                         f"Custos {fmt_brl(total_cus)}  de {ano_sel} com "
                          f"retorno previsto em {ano_sel+1}", expanded=False):
             rows_co = "".join(f"""<tr>
               <td style="font-size:11px;font-weight:600;">{f['projeto']}</td>
               <td style="font-size:11px;text-align:center;">{MESES_PT[f['mes']-1]}/{f['ano']}</td>
-              <td style="font-size:11px;text-align:right;color:{BLUE};">{fmt_brl(f['valor'])}</td>
+              <td style="font-size:11px;text-align:right;color:{BLUE};">{fmt_brl(f['valor_unidade'])}</td>
+              <td style="font-size:11px;text-align:right;color:{AMBER};">{fmt_brl(f['valor_custos'])}</td>
             </tr>""" for f in seguinte)
             hc(f"""<table class="dt"><thead><tr><th>Projeto</th><th>Mês</th>
-              <th style="text-align:right;">Valor</th></tr></thead>
+              <th style="text-align:right;">Valor Unidade</th>
+              <th style="text-align:right;">Valor Custos</th></tr></thead>
               <tbody>{rows_co}</tbody></table>""")
 
     projetos_uni = listar_projetos(sel)
