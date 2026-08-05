@@ -1,5 +1,6 @@
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
 from datetime import datetime, date
 import html as _html
 from database import (listar_unidades, listar_projetos, get_lancamentos,
@@ -173,6 +174,25 @@ label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] p{{
   font-size:13.5px;font-weight:500;color:{TEXT};margin:0;}}
 
 /* ═══════════════════════════════════════════════════════════════════════
+   Menu lateral (navegação por página) — agora feito com botões próprios
+   em vez de st.radio, pra ter controle total do indicador de item ativo.
+   ═══════════════════════════════════════════════════════════════════════ */
+.st-key-nav_menu [data-testid="stHorizontalBlock"]{{
+  align-items:center!important;gap:0!important;margin-bottom:1px!important;}}
+.st-key-nav_menu [data-testid="column"]{{padding:0!important;}}
+.st-key-nav_menu button[kind="secondary"]{{
+  background:transparent!important;border:none!important;box-shadow:none!important;
+  justify-content:flex-start!important;padding:8px 10px!important;
+  border-radius:8px!important;transition:background .15s ease;min-height:0!important;}}
+.st-key-nav_menu button[kind="secondary"]:hover{{
+  background:{HOVER}!important;border:none!important;}}
+.st-key-nav_menu button[kind="secondary"] p{{
+  text-align:left!important;font-size:13.5px!important;color:{TEXT}!important;
+  margin:0!important;}}
+.st-key-nav_menu button[kind="secondary"]:hover p{{color:{BLUE2}!important;}}
+.st-key-nav_menu button[kind="secondary"] strong{{color:{BLUE2}!important;}}
+
+/* ═══════════════════════════════════════════════════════════════════════
    Polimento geral — inputs, botões, cards, tabelas com transições suaves,
    raios de borda consistentes e sombras mais discretas/profissionais.
    ═══════════════════════════════════════════════════════════════════════ */
@@ -286,7 +306,30 @@ with st.sidebar:
         opcoes = ["🏠 Dashboard Global","🏭 Minha Unidade","👤 Minha Conta"]
     else:
         opcoes = ["🏠 Dashboard Global","👤 Minha Conta"]
-    pagina = st.radio("", opcoes, label_visibility="collapsed", key="pagina_atual")
+
+    if "pagina_atual" not in st.session_state or st.session_state["pagina_atual"] not in opcoes:
+        st.session_state["pagina_atual"] = opcoes[0]
+
+    # Navegação feita com botões próprios (não st.radio) — o indicador de
+    # item ativo é um <div> nosso, não um componente interno do Streamlit,
+    # então garantimos 100% a cor (azul) e a ausência de qualquer caixa/pill
+    # de fundo, sem depender de como o Streamlit desenha o rádio por dentro.
+    with st.container(key="nav_menu"):
+        for op in opcoes:
+            ativo = (st.session_state["pagina_atual"] == op)
+            c_dot, c_btn = st.columns([0.09, 0.91], gap="small")
+            with c_dot:
+                cor_dot = BLUE if ativo else "transparent"
+                st.markdown(f'<div style="width:8px;height:8px;border-radius:50%;'
+                            f'background:{cor_dot};margin:15px auto 0;"></div>',
+                            unsafe_allow_html=True)
+            with c_btn:
+                rotulo = f"**{op}**" if ativo else op
+                if st.button(rotulo, key=f"nav_btn_{op}", use_container_width=True):
+                    st.session_state["pagina_atual"] = op
+                    st.rerun()
+
+    pagina = st.session_state["pagina_atual"]
 
     if pagina == "➕ Novo Projeto" and st.session_state.get("_pagina_anterior") != "➕ Novo Projeto":
         from pages.novo_projeto import _limpar_estado_novo_projeto
@@ -342,17 +385,18 @@ def render_carry_over(ano_ref, unidade_nome=None):
     with st.expander(f"↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
                      f"Custos {fmt_brl(total_cus)}  de {ano_ref} com retorno "
                      f"previsto em {ano_ref+1}", expanded=False):
-        rows = "".join(f"""<tr>
-          <td style="font-size:11px;font-weight:600;">{f['projeto']}</td>
-          <td style="font-size:11px;">{f['unidade']}</td>
-          <td style="font-size:11px;text-align:center;">{MESES_PT[f['mes']-1]}/{f['ano']}</td>
-          <td style="font-size:11px;text-align:right;color:{BLUE};">{fmt_brl(f['valor_unidade'])}</td>
-          <td style="font-size:11px;text-align:right;color:{AMBER};">{fmt_brl(f['valor_custos'])}</td>
-        </tr>""" for f in seguinte)
-        hc(f"""<table class="dt"><thead><tr><th>Projeto</th><th>Unidade</th>
-          <th>Mês</th><th style="text-align:right;">Valor Unidade</th>
-          <th style="text-align:right;">Valor Custos</th></tr></thead>
-          <tbody>{rows}</tbody></table>""")
+        df_co = pd.DataFrame([{
+            "Projeto": f["projeto"], "Unidade": f["unidade"],
+            "Mês": f"{MESES_PT[f['mes']-1]}/{f['ano']}",
+            "Valor Unidade": f["valor_unidade"],
+            "Valor Custos": f["valor_custos"],
+        } for f in seguinte])
+        st.caption("Clique no cabeçalho de qualquer coluna pra ordenar (crescente/decrescente).")
+        st.dataframe(df_co, use_container_width=True, hide_index=True,
+                     column_config={
+                         "Valor Unidade": st.column_config.NumberColumn(format="R$ %,.0f"),
+                         "Valor Custos": st.column_config.NumberColumn(format="R$ %,.0f"),
+                     })
 
 def build_funnel(dados):
     labels  = ["Meta do Grupo","Previsto (Unidade)","Validado por Custos","Real Lançado"]
