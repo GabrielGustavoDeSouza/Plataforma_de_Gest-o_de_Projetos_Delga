@@ -534,8 +534,8 @@ def render(user, **colors):
     series_opts=["Previsto Unidade","Calculado Custos","Real Mensal",
                  "Acum. Previsto Uni","Acum. Calculado","Acum. Real","Projeção Meta"]
     series_sel=st.multiselect("Séries:",series_opts,
-                               default=["Previsto Unidade","Real Mensal",
-                                        "Acum. Previsto Uni","Acum. Real","Projeção Meta"],
+                               default=["Previsto Unidade","Calculado Custos","Real Mensal",
+                                        "Acum. Previsto Uni","Acum. Calculado","Acum. Real"],
                                key="gr_series")
 
     # Calcular dados
