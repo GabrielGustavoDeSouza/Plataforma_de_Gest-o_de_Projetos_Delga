@@ -396,12 +396,21 @@ def render(user, **colors):
 
         chave = f"carry_open_uni_{ano_sel}_{sel}"
         if chave not in st.session_state: st.session_state[chave] = False
-        seta = "▾" if st.session_state[chave] else "▸"
-        rotulo = (f"{seta}  ↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
-                  f"Custos {fmt_brl(total_cus)}  de {ano_sel} com retorno "
-                  f"previsto em {ano_sel+1}")
+        seta = "▾ Ocultar detalhamento" if st.session_state[chave] else "▸ Ver detalhamento por projeto"
+
+        # Valores em HTML puro — evita o Streamlit interpretar o "$" de "R$"
+        # como abertura de fórmula matemática (markdown-lite em rótulos de
+        # widget), e garante a cor certa em cada bloco (azul/verde).
+        hc(f"""<div class="sc" style="padding:12px 18px;margin-bottom:6px;
+             display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span style="font-size:13px;color:{NAVY};">↷ <b>Carry Over de {ano_sel}</b>
+            — retorno previsto em {ano_sel+1}:</span>
+          <span style="color:{BLUE};font-weight:700;font-size:13px;">Unidade {fmt_brl(total_uni)}</span>
+          <span style="color:{SILVER};">‖</span>
+          <span style="color:{GREEN};font-weight:700;font-size:13px;">Custos {fmt_brl(total_cus)}</span>
+        </div>""")
         with st.container(key=f"carry_toggle_{chave}"):
-            if st.button(rotulo, key=f"{chave}_btn", use_container_width=True):
+            if st.button(seta, key=f"{chave}_btn", use_container_width=True):
                 st.session_state[chave] = not st.session_state[chave]; st.rerun()
 
         if st.session_state[chave]:
@@ -423,9 +432,12 @@ def render(user, **colors):
             else: linhas.sort(key=lambda l:l["projeto"])
 
             for l in linhas:
-                titulo = (f"{l['projeto']}  —  Unidade {fmt_brl(l['valor_unidade'])}  "
-                          f"‖  Custos {fmt_brl(l['valor_custos'])}")
-                with st.expander(titulo, expanded=False):
+                hc(f"""<div style="padding:6px 2px 0;font-size:12.5px;">
+                  <span style="color:{BLUE};font-weight:700;">Unidade {fmt_brl(l['valor_unidade'])}</span>
+                  <span style="color:{SILVER};">&nbsp;‖&nbsp;</span>
+                  <span style="color:{GREEN};font-weight:700;">Custos {fmt_brl(l['valor_custos'])}</span>
+                </div>""")
+                with st.expander(l['projeto'], expanded=False):
                     df_m = pd.DataFrame([{
                         "Mês": f"{MESES_PT[m['mes']-1]}/{m['ano']}",
                         "Valor Unidade": m["valor_unidade"],
