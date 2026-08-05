@@ -177,12 +177,15 @@ label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] p{{
    Menu lateral (navegação por página) — agora feito com botões próprios
    em vez de st.radio, pra ter controle total do indicador de item ativo.
    ═══════════════════════════════════════════════════════════════════════ */
+.st-key-nav_menu [data-testid="stButton"]{{
+  display:block!important;width:100%!important;text-align:left!important;}}
+.st-key-nav_menu [data-testid="element-container"]{{width:100%!important;}}
 .st-key-nav_menu button[kind="secondary"]{{
   background:transparent!important;border:none!important;box-shadow:none!important;
-  display:flex!important;justify-content:flex-start!important;
-  padding:10px 12px!important;border-radius:8px!important;
+  display:flex!important;justify-content:flex-start!important;align-items:center!important;
+  padding:10px 10px!important;border-radius:8px!important;
   transition:background .15s ease;min-height:0!important;margin-bottom:1px!important;
-  width:100%!important;}}
+  width:100%!important;text-align:left!important;}}
 .st-key-nav_menu button[kind="secondary"]:hover{{
   background:{HOVER}!important;border:none!important;}}
 .st-key-nav_menu button[kind="secondary"] div[data-testid="stMarkdownContainer"]{{
