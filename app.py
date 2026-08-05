@@ -179,14 +179,17 @@ label[data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] p{{
    ═══════════════════════════════════════════════════════════════════════ */
 .st-key-nav_menu button[kind="secondary"]{{
   background:transparent!important;border:none!important;box-shadow:none!important;
-  justify-content:flex-start!important;padding:9px 12px!important;
-  border-radius:8px!important;transition:background .15s ease;min-height:0!important;
-  margin-bottom:1px!important;}}
+  display:flex!important;justify-content:flex-start!important;
+  padding:10px 12px!important;border-radius:8px!important;
+  transition:background .15s ease;min-height:0!important;margin-bottom:1px!important;
+  width:100%!important;}}
 .st-key-nav_menu button[kind="secondary"]:hover{{
   background:{HOVER}!important;border:none!important;}}
+.st-key-nav_menu button[kind="secondary"] div[data-testid="stMarkdownContainer"]{{
+  width:100%!important;text-align:left!important;}}
 .st-key-nav_menu button[kind="secondary"] p{{
-  text-align:left!important;font-size:13.5px!important;color:{TEXT}!important;
-  margin:0!important;width:100%!important;}}
+  text-align:left!important;font-size:14.5px!important;color:{TEXT}!important;
+  margin:0!important;width:100%!important;display:block!important;}}
 .st-key-nav_menu button[kind="secondary"]:hover p{{color:{BLUE2}!important;}}
 .st-key-nav_menu button[kind="secondary"] strong{{color:{BLUE2}!important;}}
 
@@ -391,12 +394,21 @@ def render_carry_over(ano_ref, unidade_nome=None):
 
     chave = f"carry_open_{ano_ref}_{unidade_nome or 'global'}"
     if chave not in st.session_state: st.session_state[chave] = False
-    seta = "▾" if st.session_state[chave] else "▸"
-    rotulo = (f"{seta}  ↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
-              f"Custos {fmt_brl(total_cus)}  de {ano_ref} com retorno "
-              f"previsto em {ano_ref+1}")
+    seta = "▾ Ocultar detalhamento" if st.session_state[chave] else "▸ Ver detalhamento por projeto"
+
+    # Valores em HTML puro (não markdown) — evita que o Streamlit interprete
+    # o "$" de "R$" como abertura de fórmula matemática (bug conhecido do
+    # markdown-lite em rótulos de widget), e garante a cor de cada bloco.
+    hc(f"""<div class="sc" style="padding:12px 18px;margin-bottom:6px;
+         display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:13px;color:{TEXT};">↷ <b>Carry Over de {ano_ref}</b>
+        — retorno previsto em {ano_ref+1}:</span>
+      <span style="color:{BLUE};font-weight:700;font-size:13px;">Unidade {fmt_brl(total_uni)}</span>
+      <span style="color:{SILVER};">‖</span>
+      <span style="color:{GREEN};font-weight:700;font-size:13px;">Custos {fmt_brl(total_cus)}</span>
+    </div>""")
     with st.container(key=f"carry_toggle_{chave}"):
-        if st.button(rotulo, key=f"{chave}_btn", use_container_width=True):
+        if st.button(seta, key=f"{chave}_btn", use_container_width=True):
             st.session_state[chave] = not st.session_state[chave]; st.rerun()
     if not st.session_state[chave]: return
 
@@ -419,9 +431,12 @@ def render_carry_over(ano_ref, unidade_nome=None):
     else: linhas.sort(key=lambda l:l["unidade"])
 
     for l in linhas:
-        titulo = (f"{l['projeto']}  ·  {l['unidade']}  —  "
-                  f"Unidade {fmt_brl(l['valor_unidade'])}  ‖  Custos {fmt_brl(l['valor_custos'])}")
-        with st.expander(titulo, expanded=False):
+        hc(f"""<div style="padding:6px 2px 0;font-size:12.5px;">
+          <span style="color:{BLUE};font-weight:700;">Unidade {fmt_brl(l['valor_unidade'])}</span>
+          <span style="color:{SILVER};">&nbsp;‖&nbsp;</span>
+          <span style="color:{GREEN};font-weight:700;">Custos {fmt_brl(l['valor_custos'])}</span>
+        </div>""")
+        with st.expander(f"{l['projeto']}  ·  {l['unidade']}", expanded=False):
             df_m = pd.DataFrame([{
                 "Mês": f"{MESES_PT[m['mes']-1]}/{m['ano']}",
                 "Valor Unidade": m["valor_unidade"],
