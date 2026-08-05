@@ -141,14 +141,28 @@ label[data-testid="stRadioOption"], label:has(> input[type="radio"]){{
   transition:background .15s ease,color .15s ease;cursor:pointer;}}
 label[data-testid="stRadioOption"]:hover, label:has(> input[type="radio"]):hover{{
   background:{HOVER}!important;}}
-/* Item selecionado: fundo azul-claro translúcido + texto em negrito na
-   cor da marca — nunca o pill navy escuro que o Streamlit aplica sozinho */
+/* Item selecionado: só o indicador (bolinha) muda de cor — sem nenhum
+   bloco/pill de fundo atrás do texto. */
 label[data-testid="stRadioOption"][data-selected="true"],
 label:has(> input[type="radio"]:checked){{
-  background:{BLUE}18!important;}}
+  background:transparent!important;}}
 label[data-testid="stRadioOption"][data-selected="true"] [data-testid="stMarkdownContainer"] p,
 label:has(> input[type="radio"]:checked) [data-testid="stMarkdownContainer"] p{{
   color:{BLUE2}!important;font-weight:700!important;}}
+/* A bolinha em si costuma ser desenhada como SVG (não como borda de div),
+   então border-color não a atinge — força fill/stroke do SVG inteiro,
+   que é o que realmente pinta o círculo, cobrindo qualquer marcação
+   interna (círculo, ponto central, anel) de uma vez só. */
+label[data-testid="stRadioOption"][data-selected="true"] svg,
+label[data-testid="stRadioOption"][data-selected="true"] svg *,
+label:has(> input[type="radio"]:checked) svg,
+label:has(> input[type="radio"]:checked) svg *{{
+  fill:{BLUE}!important;stroke:{BLUE}!important;}}
+/* Reforço final: se o indicador não for SVG e sim um div com borda,
+   também cobre esse caso — sem custo, roda em paralelo ao ajuste acima. */
+label[data-testid="stRadioOption"][data-selected="true"] div[role="radio"],
+label:has(> input[type="radio"]:checked) div[role="radio"]{{
+  border-color:{BLUE}!important;background-color:{BLUE}!important;}}
 /* Garante que só o "cartão" do item ganha fundo — nunca sub-elementos
    internos criando aquele efeito de barra dupla/escura */
 label[data-testid="stRadioOption"] > div,
@@ -318,21 +332,26 @@ def year_nav(key, help_txt=""):
 
 def render_carry_over(ano_ref, unidade_nome=None):
     """Botão discreto que só aparece quando há valor de retorno previsto
-    saindo do ano vigente pro ano seguinte (Ganho a partir de fora de jan)."""
+    saindo do ano vigente pro ano seguinte (Ganho a partir de fora de jan).
+    Só considera projetos validados por Custos (validador_ok='OK')."""
     fora = get_carry_over(ano_ref, unidade_nome)
     seguinte = [f for f in fora if f["direcao"]=="seguinte"]
     if not seguinte: return
-    total = sum(f["valor"] for f in seguinte)
-    with st.expander(f"↷ Carry Over — {fmt_brl(total)} de {ano_ref} com retorno "
+    total_uni = sum(f["valor_unidade"] for f in seguinte)
+    total_cus = sum(f["valor_custos"] for f in seguinte)
+    with st.expander(f"↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
+                     f"Custos {fmt_brl(total_cus)}  de {ano_ref} com retorno "
                      f"previsto em {ano_ref+1}", expanded=False):
         rows = "".join(f"""<tr>
           <td style="font-size:11px;font-weight:600;">{f['projeto']}</td>
           <td style="font-size:11px;">{f['unidade']}</td>
           <td style="font-size:11px;text-align:center;">{MESES_PT[f['mes']-1]}/{f['ano']}</td>
-          <td style="font-size:11px;text-align:right;color:{BLUE};">{fmt_brl(f['valor'])}</td>
+          <td style="font-size:11px;text-align:right;color:{BLUE};">{fmt_brl(f['valor_unidade'])}</td>
+          <td style="font-size:11px;text-align:right;color:{AMBER};">{fmt_brl(f['valor_custos'])}</td>
         </tr>""" for f in seguinte)
         hc(f"""<table class="dt"><thead><tr><th>Projeto</th><th>Unidade</th>
-          <th>Mês</th><th style="text-align:right;">Valor</th></tr></thead>
+          <th>Mês</th><th style="text-align:right;">Valor Unidade</th>
+          <th style="text-align:right;">Valor Custos</th></tr></thead>
           <tbody>{rows}</tbody></table>""")
 
 def build_funnel(dados):
