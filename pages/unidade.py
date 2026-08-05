@@ -1,5 +1,6 @@
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
 from datetime import datetime, date
 import html as _html
 from database import (listar_unidades, kpis_unidade, alertas_validacao,
@@ -394,16 +395,18 @@ def render(user, **colors):
         with st.expander(f"↷ Carry Over — Unidade {fmt_brl(total_uni)}  ‖  "
                          f"Custos {fmt_brl(total_cus)}  de {ano_sel} com "
                          f"retorno previsto em {ano_sel+1}", expanded=False):
-            rows_co = "".join(f"""<tr>
-              <td style="font-size:11px;font-weight:600;">{f['projeto']}</td>
-              <td style="font-size:11px;text-align:center;">{MESES_PT[f['mes']-1]}/{f['ano']}</td>
-              <td style="font-size:11px;text-align:right;color:{BLUE};">{fmt_brl(f['valor_unidade'])}</td>
-              <td style="font-size:11px;text-align:right;color:{AMBER};">{fmt_brl(f['valor_custos'])}</td>
-            </tr>""" for f in seguinte)
-            hc(f"""<table class="dt"><thead><tr><th>Projeto</th><th>Mês</th>
-              <th style="text-align:right;">Valor Unidade</th>
-              <th style="text-align:right;">Valor Custos</th></tr></thead>
-              <tbody>{rows_co}</tbody></table>""")
+            df_co = pd.DataFrame([{
+                "Projeto": f["projeto"],
+                "Mês": f"{MESES_PT[f['mes']-1]}/{f['ano']}",
+                "Valor Unidade": f["valor_unidade"],
+                "Valor Custos": f["valor_custos"],
+            } for f in seguinte])
+            st.caption("Clique no cabeçalho de qualquer coluna pra ordenar (crescente/decrescente).")
+            st.dataframe(df_co, use_container_width=True, hide_index=True,
+                         column_config={
+                             "Valor Unidade": st.column_config.NumberColumn(format="R$ %,.0f"),
+                             "Valor Custos": st.column_config.NumberColumn(format="R$ %,.0f"),
+                         })
 
     projetos_uni = listar_projetos(sel)
     nomes_proj = [f"#{p['id']} — {p['nome'][:28]}" for p in projetos_uni]
